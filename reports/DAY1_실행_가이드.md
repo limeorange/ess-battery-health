@@ -20,6 +20,23 @@ python src/day1_analysis.py
 python -m pip install -r requirements-day1.txt
 ```
 
+## 제출용 PDF 재생성
+
+분석 보고서와 그래프가 생성된 뒤 다음 명령을 실행합니다.
+
+```bash
+python src/build_day1_pdf.py
+```
+
+생성 파일:
+
+```text
+output/pdf/DS-MINI-Design-Day1-배터리수명예측-제출본.pdf
+```
+
+실제 제출 전에는 과제 안내의 규칙에 맞춰
+`DS-MINI-Design-{캠퍼스_X반}-{이름1+이름2}.pdf`로 파일명을 변경합니다.
+
 ## 입력
 
 - `data/2017-05-12_batchdata_updated_struct_errorcorrect.mat`
@@ -34,6 +51,7 @@ Extra 가변충전 파일은 `cycle_life`가 없어 target 기반 Day 1 비교�
 - `figures/day1/`: 한국어 분석 그래프 12개
 - `reports/DAY1_분석_보고서.md`: 결과와 모델 전략을 연결한 보고서
 - `notebooks/01_EDA.ipynb`: 결과 확인 및 전체 파이프라인 재실행 노트북
+- `output/pdf/DS-MINI-Design-Day1-배터리수명예측-제출본.pdf`: 표·그래프를 포함한 17쪽 제출용 PDF
 
 ## 재현성 규칙
 
