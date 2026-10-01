@@ -1,0 +1,14 @@
+{
+  "random_seed": 42,
+  "font": "Noto Sans KR",
+  "raw_cell_count": 139,
+  "labeled_cell_count": 129,
+  "batch_files": {
+    "Batch 1": "2017-05-12_batchdata_updated_struct_errorcorrect.mat",
+    "Batch 2": "2018-02-20_batchdata_updated_struct_errorcorrect.mat",
+    "Batch 3": "2018-04-12_batchdata_updated_struct_errorcorrect.mat"
+  },
+  "report": "reports/DAY1_분석_보고서.md",
+  "figure_count": 12,
+  "result_table_count": 13
+}

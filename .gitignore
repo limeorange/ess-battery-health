@@ -1,3 +1,7 @@
 data/
-강의자료/
+guide/
 tmp/
+.cache/
+.python_packages/
+__pycache__/
+*.pyc
