@@ -5,3 +5,4 @@ tmp/
 .python_packages/
 __pycache__/
 *.pyc
+.DS_Store
