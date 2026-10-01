@@ -1,0 +1,4 @@
+﻿batch,cells,labeled_cells,missing_target_cells,first_cycle_zero_cells,cycle_10_available_cells,cycle_100_available_cells,delta_q_available_cells,full_curve_cells,policy_parse_success_cells,cells_with_nan_inf,cells_with_duplicate_cycles,summary_object_mismatch,early_ir_unavailable_cells,cells_with_early_tmin_invalid,labeled_pct,cycle_10_available_pct,cycle_100_available_pct,delta_q_available_pct,full_curve_pct,policy_parse_success_pct,knee_eligible_pct_labeled
+Batch 1,46,46,0,46,46,46,46,46,46,0,0,0,0,0,100.0,100.0,100.0,100.0,100.0,100.0,100.0
+Batch 2,47,39,8,0,47,47,47,39,47,0,0,0,7,3,82.97872340425532,100.0,100.0,100.0,82.97872340425532,100.0,100.0
+Batch 3,46,44,2,0,46,46,46,44,46,0,0,0,0,0,95.65217391304348,100.0,100.0,100.0,95.65217391304348,100.0,100.0
