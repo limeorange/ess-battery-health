@@ -37,9 +37,6 @@ Batch 2 결과를 확인한 뒤 Feature나 Hyperparameter를 다시 조정하지
 ```text
 ├── data/
 │   └── README.md                         # 원본 .mat 파일명과 배치 방법
-├── guide/
-│   ├── DAY1_과제_안내.md
-│   └── DAY2_과제_안내.md
 ├── notebooks/
 │   ├── 01_EDA.ipynb                     # Day 1 탐색적 데이터 분석
 │   ├── 02_feature_engineering.ipynb     # 원본 추출, ΔQ, Feature Table, 품질·누수 검사
@@ -332,4 +329,3 @@ Batch 2에서는 과대 예측이 지배적이므로 단순 평균오차 문제�
 | 담당자 | 역할 |
 |---|---|
 | U094 이수현 | EDA, Feature Engineering, 모델 개발, Batch 2·3 성능 평가, 오류·Batch shift 분석, 보고서 작성 |
-
