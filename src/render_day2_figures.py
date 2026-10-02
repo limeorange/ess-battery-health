@@ -14,6 +14,7 @@ from day2_analysis import (
     plot_group_error,
     plot_importance,
     plot_model_comparison,
+    plot_protocol_robustness,
     plot_residuals,
     plot_worst_predictions,
 )
@@ -35,9 +36,11 @@ def main() -> None:
     worst = pd.read_csv(RESULTS / "worst_predictions.csv")
     importance = pd.read_csv(RESULTS / "feature_importance.csv")
     batch_shift = pd.read_csv(RESULTS / "batch_shift.csv")
+    robust_features = pd.read_csv(RESULTS / "protocol_robust_feature_results.csv")
 
     plot_model_comparison(comparison, FIGURES)
     plot_ablation(ablation, FIGURES)
+    plot_protocol_robustness(robust_features, FIGURES)
     plot_actual_vs_predicted(predictions, FIGURES)
     plot_residuals(predictions, FIGURES)
     plot_group_error(life_group_error, FIGURES)

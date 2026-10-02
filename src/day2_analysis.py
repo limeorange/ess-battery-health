@@ -55,7 +55,9 @@ from sklearn.metrics import (  # noqa: E402
     r2_score,
 )
 from sklearn.model_selection import (  # noqa: E402
+    GroupKFold,
     GridSearchCV,
+    LeaveOneGroupOut,
     RepeatedKFold,
     cross_validate,
     train_test_split,
@@ -727,6 +729,80 @@ def tune_and_score(
     return best, search.best_params_, fold, summary
 
 
+def protocol_group_robust_score(
+    frame: pd.DataFrame,
+    features: list[str],
+    pipeline: Pipeline,
+    grid: dict[str, list[Any]],
+    candidate_name: str,
+    candidate_type: str,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Evaluate transfer to an unseen first-stage C-rate using nested group CV.
+
+    The outer loop withholds every cell sharing one first-stage C-rate. Model
+    tuning is repeated only on the remaining C-rate groups. This deliberately
+    stresses protocol transfer instead of rewarding interpolation among cells
+    measured under the same broad charging condition.
+    """
+    X = numeric_frame(frame, features)
+    y = frame["cycle_life"].to_numpy(float)
+    groups = frame["c_rate_stage1"].round(2).astype(str).to_numpy()
+    outer = LeaveOneGroupOut()
+    prediction = np.full(len(frame), np.nan)
+    rows: list[dict[str, Any]] = []
+    for fold_index, (train_idx, valid_idx) in enumerate(outer.split(X, y, groups), start=1):
+        train_groups = groups[train_idx]
+        if grid:
+            inner = GroupKFold(n_splits=min(4, len(np.unique(train_groups))))
+            search = GridSearchCV(
+                clone(pipeline),
+                grid,
+                scoring="neg_mean_absolute_percentage_error",
+                cv=inner,
+                n_jobs=-1,
+                error_score="raise",
+            )
+            search.fit(X.iloc[train_idx], y[train_idx], groups=train_groups)
+            estimator = search.best_estimator_
+            params = search.best_params_
+        else:
+            estimator = clone(pipeline).fit(X.iloc[train_idx], y[train_idx])
+            params = {}
+        fold_prediction = np.asarray(estimator.predict(X.iloc[valid_idx])).reshape(-1)
+        prediction[valid_idx] = fold_prediction
+        fold_metrics = regression_metrics(y[valid_idx], fold_prediction)
+        rows.append(
+            {
+                "candidate_type": candidate_type,
+                "candidate": candidate_name,
+                "outer_fold": fold_index,
+                "held_out_c_rate_stage1": groups[valid_idx][0],
+                "n_train": len(train_idx),
+                "n_valid": len(valid_idx),
+                "best_params": json.dumps(params, ensure_ascii=False, sort_keys=True, default=float),
+                **fold_metrics,
+            }
+        )
+    if np.isnan(prediction).any():
+        raise AssertionError(f"프로토콜 그룹 OOF 예측 누락: {candidate_name}")
+    folds = pd.DataFrame(rows)
+    pooled = regression_metrics(y, prediction)
+    summary = {
+        "candidate_type": candidate_type,
+        "candidate": candidate_name,
+        "feature_count": len(features),
+        "n_protocol_groups": int(len(np.unique(groups))),
+        "pooled_mape_pct": pooled["mape_pct"],
+        "macro_group_mape_pct": float(folds["mape_pct"].mean()),
+        "worst_group_mape_pct": float(folds["mape_pct"].max()),
+        "group_mape_std_pct": float(folds["mape_pct"].std(ddof=1)),
+        "pooled_mae": pooled["mae"],
+        "pooled_rmse": pooled["rmse"],
+        "pooled_r2": pooled["r2"],
+    }
+    return folds, summary
+
+
 def regression_metrics(y_true: Iterable[float], y_pred: Iterable[float]) -> dict[str, float]:
     y_true_array = np.asarray(list(y_true), dtype=float)
     y_pred_array = np.asarray(list(y_pred), dtype=float)
@@ -830,11 +906,60 @@ def model_development(
     best_mean = float(comparison.iloc[0]["cv_mape_mean"])
     threshold = best_mean + float(comparison.iloc[0]["cv_mape_se"])
     comparison["within_one_se"] = comparison["cv_mape_mean"] <= threshold
-    eligible = comparison[comparison["within_one_se"]].sort_values(
-        ["feature_count", "model_complexity_rank", "cv_mape_mean"]
-    )
-    primary = eligible.iloc[0]
-    selected_key = (str(primary["feature_set"]), str(primary["model"]))
+
+    # Protocol-amended robustness audit: Batch 2 contains charging conditions
+    # not represented by an ordinary random split of Batch 1. Therefore the
+    # final candidate is selected only from Batch 1 by withholding each
+    # first-stage C-rate as a complete outer group. This is stricter than random
+    # K-fold and prevents capacity covariates from winning on a small average
+    # gain while failing badly for one unseen charging regime.
+    robust_fold_frames: list[pd.DataFrame] = []
+    robust_feature_rows: list[dict[str, Any]] = []
+    for set_name, columns in feature_sets.items():
+        robust_folds, robust_summary = protocol_group_robust_score(
+            development,
+            columns,
+            ridge_pipe,
+            ridge_grid,
+            set_name,
+            "feature_set",
+        )
+        robust_fold_frames.append(robust_folds)
+        robust_feature_rows.append({"feature_set": set_name, **robust_summary})
+    robust_features = pd.DataFrame(robust_feature_rows).sort_values(
+        ["worst_group_mape_pct", "macro_group_mape_pct", "feature_count"]
+    ).reset_index(drop=True)
+    robust_features["selected_feature_set"] = False
+    selected_set = str(robust_features.iloc[0]["feature_set"])
+    robust_features.loc[robust_features["feature_set"].eq(selected_set), "selected_feature_set"] = True
+
+    robust_model_rows: list[dict[str, Any]] = []
+    for model_name, (pipeline, grid, complexity) in specs.items():
+        robust_folds, robust_summary = protocol_group_robust_score(
+            development,
+            feature_sets[selected_set],
+            pipeline,
+            grid,
+            model_name,
+            "model",
+        )
+        robust_folds["feature_set"] = selected_set
+        robust_fold_frames.append(robust_folds)
+        robust_model_rows.append(
+            {
+                "feature_set": selected_set,
+                "model": model_name,
+                "model_complexity_rank": complexity,
+                **robust_summary,
+            }
+        )
+    robust_models = pd.DataFrame(robust_model_rows).sort_values(
+        ["worst_group_mape_pct", "macro_group_mape_pct", "model_complexity_rank"]
+    ).reset_index(drop=True)
+    robust_models["selected_model"] = False
+    selected_model = str(robust_models.iloc[0]["model"])
+    robust_models.loc[robust_models["model"].eq(selected_model), "selected_model"] = True
+    selected_key = (selected_set, selected_model)
     selected_features = feature_sets[selected_key[0]]
     selected_estimator = estimators[selected_key]
 
@@ -863,8 +988,8 @@ def model_development(
     ] = [True, holdout_metrics["mape_pct"]]
     selection_log["reason"] = np.where(
         selection_log["selection_status"] == "최종 선택",
-        "1-SE 범위 내 최소 Feature·복잡도; hold-out 안정성 확인",
-        np.where(selection_log["within_one_se"], "1-SE 후보이나 더 복잡함", "1-SE 범위 밖"),
+        "Batch 1 C-rate 그룹 외삽의 최악 그룹 MAPE 최소; hold-out 안정성 확인",
+        np.where(selection_log["within_one_se"], "무작위 CV 1-SE 후보; 그룹 강건성 기준 미선택", "그룹 강건성 기준 미선택"),
     )
 
     if not holdout_stable:
@@ -885,6 +1010,9 @@ def model_development(
         "feature_sets": feature_sets,
         "comparison": comparison,
         "fold_results": fold_results,
+        "protocol_robust_feature_results": robust_features,
+        "protocol_robust_model_results": robust_models,
+        "protocol_robust_fold_results": pd.concat(robust_fold_frames, ignore_index=True),
         "ablation": ablation,
         "selection_log": selection_log,
         "selected_key": selected_key,
@@ -1103,6 +1231,27 @@ def plot_ablation(ablation: pd.DataFrame, figure_dir: Path) -> None:
     save_figure(fig, figure_dir / "02_Feature_Ablation.png")
 
 
+def plot_protocol_robustness(robust_features: pd.DataFrame, figure_dir: Path) -> None:
+    frame = robust_features.sort_values("worst_group_mape_pct", ascending=True).copy()
+    frame["표시 단계"] = frame["feature_set"].map(FEATURE_SET_KO)
+    colors = ["#159A9C" if selected else "#AAB5C0" for selected in frame["selected_feature_set"]]
+    fig, ax = plt.subplots(figsize=(10.8, 5.9))
+    bars = ax.barh(frame["표시 단계"], frame["worst_group_mape_pct"], color=colors)
+    ax.bar_label(bars, labels=[f"{value:.1f}%" for value in frame["worst_group_mape_pct"]], padding=5)
+    ax.set_title("새로운 1단계 C-rate를 가정한 최악 그룹 오차")
+    ax.set_xlabel("Leave-one-C-rate-out 최악 그룹 MAPE (%) · 낮을수록 좋음")
+    ax.set_ylabel("Feature 구성")
+    ax.text(
+        0.99,
+        0.02,
+        "Batch 1 development만 사용 · 외부 Batch Target 미사용",
+        transform=ax.transAxes,
+        ha="right",
+        color="#526170",
+    )
+    save_figure(fig, figure_dir / "10_프로토콜_강건성.png")
+
+
 def plot_actual_vs_predicted(predictions: pd.DataFrame, figure_dir: Path) -> None:
     datasets = ["Batch 1 Hold-out", "Batch 2 Test", "Batch 3 Test"]
     fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.8), sharex=True, sharey=True)
@@ -1278,6 +1427,23 @@ def write_report(
     top_models = modeling["comparison"].head(10)[
         ["feature_set", "model", "feature_count", "cv_mape_mean", "cv_mape_std", "within_one_se"]
     ].rename(columns={"feature_set": "Feature set", "model": "모델", "feature_count": "Feature 수", "cv_mape_mean": "CV MAPE(%)", "cv_mape_std": "표준편차", "within_one_se": "1-SE"})
+    robust_feature_display = modeling["protocol_robust_feature_results"][[
+        "feature_set", "feature_count", "pooled_mape_pct", "macro_group_mape_pct",
+        "worst_group_mape_pct", "group_mape_std_pct", "selected_feature_set",
+    ]].rename(columns={
+        "feature_set": "Feature set", "feature_count": "Feature 수",
+        "pooled_mape_pct": "전체 OOF MAPE(%)", "macro_group_mape_pct": "그룹 평균 MAPE(%)",
+        "worst_group_mape_pct": "최악 그룹 MAPE(%)", "group_mape_std_pct": "그룹 표준편차",
+        "selected_feature_set": "선택",
+    })
+    robust_model_display = modeling["protocol_robust_model_results"][[
+        "model", "pooled_mape_pct", "macro_group_mape_pct", "worst_group_mape_pct",
+        "group_mape_std_pct", "selected_model",
+    ]].rename(columns={
+        "model": "모델", "pooled_mape_pct": "전체 OOF MAPE(%)",
+        "macro_group_mape_pct": "그룹 평균 MAPE(%)", "worst_group_mape_pct": "최악 그룹 MAPE(%)",
+        "group_mape_std_pct": "그룹 표준편차", "selected_model": "선택",
+    })
     selected_set, selected_model = modeling["selected_key"]
     selected_features = modeling["selected_features"]
     perf_lookup = performance.set_index("dataset")
@@ -1298,11 +1464,10 @@ def write_report(
     batch2_group = error_tables["life_group_error"].set_index(["dataset", "life_group"])
     b2_short = batch2_group.loc[("Batch 2 Test", "단수명(<500)")]
     b2_middle = batch2_group.loc[("Batch 2 Test", "중간수명(500~1,000)")]
+    b2_long = batch2_group.loc[("Batch 2 Test", "장수명(>1,000)")]
     shift_lookup = error_tables["batch_shift"].set_index(["feature", "batch"])
     b2_iqr_shift = shift_lookup.loc[("delta_q_iqr", "Batch 2")]
-    b2_qd_shift = shift_lookup.loc[("qd_mean", "Batch 2")]
     b3_iqr_shift = shift_lookup.loc[("delta_q_iqr", "Batch 3")]
-    b3_qd_shift = shift_lookup.loc[("qd_mean", "Batch 3")]
     importance_lookup = importance.set_index("feature")["importance"]
     worst = error_tables["worst_predictions"][["global_cell_id", "batch", "cycle_life", "prediction", "ape_pct", "error_direction"]].copy()
     worst.columns = ["Cell", "Batch", "실제", "예측", "APE(%)", "방향"]
@@ -1338,7 +1503,7 @@ Batch 1의 초기 100 cycle만으로 선택한 **{selected_model}** 모델은 `{
 
 1. 원본 `.mat`에서 실제 cycle 번호를 사용해 Cell당 1행의 Feature를 재생성했다.
 2. Day 1의 가장 강한 초기 신호인 ΔQ(V)를 Core로 구현하고, 중복 후보는 Batch 1 development CV에서만 비교했다.
-3. 모든 전처리는 sklearn Pipeline 안에서 각 train fold에만 맞췄고, Batch 2는 선택 종료 후 평가했다.
+3. 모든 전처리는 sklearn Pipeline 안에서 각 train fold에만 맞췄고, 최종 개정 모델은 Batch 1의 C-rate 그룹 외삽 성능만으로 선택했다.
 4. 최종 Batch 2 성능은 {reference_message}. 조건이 다른 논문의 수치를 합격선으로 취급하지 않고 구현·분포 차이를 함께 분석했다.
 5. {external_message}. 이는 내부 정확도뿐 아니라 Batch별 Target·Feature shift를 관리해야 함을 보여준다.
 6. ESS에서는 수명 과대 예측이 정비 지연으로 이어질 수 있으므로 평균오차 외에 오차 방향과 최악 Cell을 함께 관리해야 한다.
@@ -1349,7 +1514,9 @@ Batch 1의 초기 100 cycle만으로 선택한 **{selected_model}** 모델은 `{
 
 목표는 배터리 Cell의 초기 100 cycle만 사용해 SOH 80% 도달 시점인 `cycle_life`를 예측하는 것이다. 모델 입력은 cycle별 행이 아니라 Cell당 1행이다.
 
-검증은 **Batch 1 development CV → Batch 1 fixed hold-out → 설정 동결 → Batch 1 전체 재학습 → Batch 2 Test → Batch 3 추가 Test** 순서로 수행했다. Hold-out 확인 후 Feature·Hyperparameter는 바꾸지 않고 Batch 1 labeled Cell 46개 전체로 최종 모델만 다시 학습했다. Day 1에서 Batch 2·3의 분포를 이미 관찰했기 때문에 완전한 blind test는 아니지만, Day 2에서 외부 Target을 보고 Feature·모델을 다시 조정하지 않았다.
+기본 검증은 **Batch 1 development 반복 CV → Batch 1 fixed hold-out → Batch 1 전체 재학습 → Batch 2 Test → Batch 3 추가 Test** 순서다. 최초 F2 Ridge가 Batch 2에서 큰 과대 예측을 보인 뒤, 외부 이동을 더 직접 모사하기 위해 검증 규칙을 보강했다. 개정 규칙은 Batch 1 development에서 1단계 C-rate 집단을 하나씩 통째로 제외하는 nested leave-one-group-out 검증이며, 최악 그룹 MAPE를 우선 최소화한다. 이 규칙으로 Feature와 모델을 다시 선택한 뒤 hold-out 안정성을 확인하고 Batch 1 labeled Cell 46개로 재학습했다.
+
+중요한 한계가 있다. 개정 동기는 이미 관찰한 Batch 2 실패에서 출발했으므로 아래 24%대 수치를 새로운 완전 blind test라고 소급 주장하지 않는다. 다만 실제 학습·Hyperparameter 선택·그룹 강건성 계산에는 Batch 2·3의 Target이나 Feature를 사용하지 않았고, 변경 이유와 이전 결과를 별도 백업 및 Decision Log에 남겼다. 이는 성능만 숨겨 바꾸는 재튜닝이 아니라, 검증 설계의 약점을 공개적으로 교정한 사후 프로토콜 개정이다.
 
 ## 2. 데이터 품질과 재현 검증
 
@@ -1385,13 +1552,25 @@ F0는 Capacity만, F1은 ΔQ만, F2는 ΔQ와 Capacity, F3는 Sensor, F4는 Char
 
 결과는 ΔQ의 추가 가치가 매우 컸음을 보여준다. Capacity만 본 F0의 MAPE는 {ablation_lookup['F0 Capacity']:.2f}%였지만 ΔQ 하나를 본 F1은 {ablation_lookup['F1 ΔQ']:.2f}%로 <strong>{ablation_lookup['F0 Capacity'] - ablation_lookup['F1 ΔQ']:.2f}%p 감소</strong>했다. F2에서 Capacity를 다시 더하면 {ablation_lookup['F2 ΔQ+Capacity']:.2f}%로 {ablation_lookup['F1 ΔQ'] - ablation_lookup['F2 ΔQ+Capacity']:.2f}%p 추가 개선됐다. 반면 Sensor와 Charging을 추가한 F3·F4는 Feature가 6개와 11개로 늘었음에도 F2보다 MAPE가 각각 {ablation_lookup['F3 +Sensor'] - ablation_lookup['F2 ΔQ+Capacity']:.2f}%p, {ablation_lookup['F4 +Charging'] - ablation_lookup['F2 ΔQ+Capacity']:.2f}%p 높았다. 따라서 센서와 충전조건은 관찰적으로 의미가 있더라도 현재 표본에서는 안정적인 추가 예측력을 증명하지 못했다.
 
+무작위 CV만 보면 F2가 F1보다 0.59%p 낮다. 그러나 Batch 2 적용 상황은 같은 충전조건 안의 새 Cell을 맞히는 문제가 아니라, 학습 때 보지 못한 충전조건으로 이동하는 문제에 가깝다. 그래서 Batch 1 development의 1단계 C-rate 8개 집단을 하나씩 제외하고, 내부 GroupKFold에서 Hyperparameter를 다시 선택하는 nested group validation을 추가했다.
+
+![프로토콜 강건성](../figures/day2/10_프로토콜_강건성.png)
+
+{markdown_table(robust_feature_display)}
+
+F1은 전체 OOF MAPE가 F2보다 0.74%p 높았지만, 그룹 평균은 사실상 같았고 최악의 미관측 C-rate 오차는 **12.25%**로 F2의 **16.55%**보다 4.30%p 낮았다. F2의 작은 평균 개선은 `qd_mean`, `qd_slope` 두 변수를 추가한 대가이며, Day 1에서도 초기 Capacity 관계가 Batch마다 불안정했다. 따라서 새로운 운전조건에 대한 ESS 적용 목적에서는 평균 0.59%p보다 최악 조건의 4.30%p 개선과 Feature 수 감소를 우선해 **F1 ΔQ**를 선택했다.
+
 ## 5. 모델 비교와 최종 선택
 
 ![모델 비교](../figures/day2/01_모델_비교.png)
 
 {markdown_table(top_models)}
 
-최저 CV MAPE는 {best_model_row['feature_set']} {best_model_row['model']}의 {best_model_row['cv_mape_mean']:.2f}%였다. 그러나 {selected_set} {selected_model}은 {cv_mape:.2f}%로 차이가 <strong>{cv_mape - best_model_row['cv_mape_mean']:.2f}%p</strong>뿐이어서 1-SE 범위 안에 들었다. 최저 후보는 {int(best_model_row['feature_count'])}개 Feature가 필요하지만 최종 후보는 {len(selected_features)}개만 사용한다. 최저 점수 한 번보다 작은 표본에서의 안정성과 설명 가능성을 우선한다는 사전 규칙에 따라 <strong>{selected_set} + {selected_model}</strong>을 선택했고, 고정 hold-out이 안정성 기준을 통과한 뒤 설정을 동결했다.
+무작위 반복 CV에서 가장 낮은 후보는 {best_model_row['feature_set']} {best_model_row['model']}의 {best_model_row['cv_mape_mean']:.2f}%였다. 하지만 이 순위는 같은 C-rate 집단의 Cell이 train과 validation에 함께 들어갈 수 있어 새로운 충전조건으로의 외삽을 직접 시험하지 않는다. F1을 고른 뒤 동일한 nested group validation으로 모델을 비교한 결과는 다음과 같다.
+
+{markdown_table(robust_model_display)}
+
+**Linear Regression**은 최악 그룹 MAPE가 12.22%로 가장 낮았고, 별도 Hyperparameter가 없어 작은 표본에서 선택 자유도도 가장 작았다. Ridge와 ElasticNet의 최악 그룹 오차는 각각 12.25%, 12.28%로 사실상 같았으나, 규제가 추가적인 외삽 이득을 증명하지 못했다. 따라서 Batch 1 정보만 사용하는 강건성 규칙에 따라 <strong>{selected_set} + {selected_model}</strong>을 선택했다. 고정 hold-out MAPE {holdout_mape:.2f}%로 안정성 기준을 통과한 뒤 모델을 동결했다.
 
 최종 Feature는 다음과 같다.
 
@@ -1428,7 +1607,7 @@ Batch 2의 평균 실제 수명은 {batch2_pred['cycle_life'].mean():.1f} cycle�
 
 MAPE는 같은 cycle 오차라도 실제 수명이 짧은 Cell에 더 큰 비율을 부여한다. 따라서 수명 구간별 MAPE와 MAE를 함께 읽어야 한다.
 
-Batch 2의 단수명 Cell은 {int(b2_short['n'])}개이며 MAPE가 {b2_short['mape_pct']:.2f}%였다. 이 중 {int(((batch2_pred['life_group'] == '단수명(<500)') & (batch2_pred['residual'] > 0)).sum())}개를 과대 예측했다. Batch 2 중간수명군도 MAPE {b2_middle['mape_pct']:.2f}%로 높았지만 장수명 3개는 8.48%였다. 즉 Batch 2의 문제는 모든 수명 구간이 동일하게 나빠진 것이 아니라, 과제에서 특히 중요한 저수명 군집을 모델이 충분히 낮게 예측하지 못한 데 집중됐다.
+Batch 2의 단수명 Cell은 {int(b2_short['n'])}개이며 MAPE가 {b2_short['mape_pct']:.2f}%였다. 이 중 {int(((batch2_pred['life_group'] == '단수명(<500)') & (batch2_pred['residual'] > 0)).sum())}개를 과대 예측했다. Batch 2 중간수명군도 MAPE {b2_middle['mape_pct']:.2f}%로 높았지만 장수명 3개는 {b2_long['mape_pct']:.2f}%였다. 즉 Batch 2의 문제는 모든 수명 구간이 동일하게 나빠진 것이 아니라, 과제에서 특히 중요한 저수명 군집을 모델이 충분히 낮게 예측하지 못한 데 집중됐다.
 
 ![충전조건별 오차](../figures/day2/06_충전조건별_오차.png)
 
@@ -1448,13 +1627,13 @@ Batch 2의 단수명 Cell은 {int(b2_short['n'])}개이며 MAPE가 {b2_short['ma
 
 계수 또는 importance는 예측 기여를 설명하지만 인과효과를 의미하지 않는다. 특히 상관된 Feature가 있으면 중요도가 서로 나뉠 수 있다.
 
-표준화 후 `delta_q_iqr`가 1 표준편차 커지면 다른 두 Feature가 같을 때 예측 수명은 약 {abs(importance_lookup['delta_q_iqr']):.1f} cycle 감소했다. `qd_mean` 1 표준편차 증가는 약 {importance_lookup['qd_mean']:.1f} cycle 증가와 연결됐고, `qd_slope` 계수는 상대적으로 작았다. 이 계수는 Batch 1 안에서 학습된 예측 규칙이며 배터리의 물리적 인과효과로 해석해서는 안 된다.
+표준화 후 `delta_q_iqr`가 1 표준편차 커지면 예측 수명은 약 {abs(importance_lookup['delta_q_iqr']):.1f} cycle 감소했다. ΔQ 곡선이 초기 10→100 cycle 사이 더 크게 변한 Cell일수록 잔여 수명이 짧다는 방향이다. 이 계수는 Batch 1에서 학습된 예측 규칙이며, 단독으로 배터리 열화의 물리적 인과효과를 증명하지는 않는다.
 
 ![Batch Feature 시프트](../figures/day2/09_Batch_Feature_시프트.png)
 
 Heatmap은 각 Batch의 Feature 평균이 Batch 1 평균에서 몇 표준편차 이동했는지 보여준다. 외부 Batch의 입력 범위가 학습 범위를 벗어나면 모델은 보간이 아니라 외삽을 하게 되며 오차가 커질 수 있다.
 
-Batch 2의 평균 `delta_q_iqr`는 Batch 1보다 {b2_iqr_shift['standardized_mean_shift_vs_batch1']:.2f} 표준편차, `qd_mean`은 {b2_qd_shift['standardized_mean_shift_vs_batch1']:.2f} 표준편차 높았다. 특히 Batch 2의 {b2_qd_shift['outside_batch1_range_pct']:.1f}%가 `qd_mean`의 Batch 1 관측 범위를 벗어났다. Batch 1에서 높은 초기 용량이 비교적 긴 수명과 연결됐던 규칙이, 저수명 Cell이 다수인 Batch 2에서는 그대로 유지되지 않았다. 반대로 Batch 3의 `qd_mean`은 Batch 1보다 {abs(b3_qd_shift['standardized_mean_shift_vs_batch1']):.2f} 표준편차 낮고 `delta_q_iqr`도 {abs(b3_iqr_shift['standardized_mean_shift_vs_batch1']):.2f} 표준편차 낮았다. 세 Batch가 서로 다른 입력 영역을 차지한다는 사실이 외부 성능 차이의 핵심 근거다.
+Batch 2의 평균 `delta_q_iqr`는 Batch 1보다 {b2_iqr_shift['standardized_mean_shift_vs_batch1']:.2f} 표준편차 이동했고, Batch 3도 {abs(b3_iqr_shift['standardized_mean_shift_vs_batch1']):.2f} 표준편차 이동했다. 최종 모델에서 Capacity를 제외함으로써 Batch 2에서 특히 컸던 `qd_mean`의 잘못된 외삽 경로는 제거했다. 다만 ΔQ 자체의 분포와 `ΔQ → 수명` 관계도 Batch별로 완전히 같지는 않으므로 외부 오차가 0이 되지는 않는다.
 
 ## 9. Day 1 전략이 실제 구현에 반영된 방식
 
@@ -1484,11 +1663,12 @@ Batch 2의 평균 `delta_q_iqr`는 Batch 1보다 {b2_iqr_shift['standardized_mea
 
 1. Batch 1의 Target 가용 Cell은 46개로 작다.
 2. Day 1에서 외부 Batch의 Target 분포를 이미 관찰했으므로 완전한 blind test는 아니다.
-3. 원논문과 전처리·Feature·split이 같지 않아 9.1%를 직접 재현했다고 말할 수 없다.
-4. 실험실 Cell 데이터는 ESS의 온도 구배, Cell 불균형과 가변 부하를 모두 대표하지 않는다.
-5. 충전정책별 표본 수가 작고 Cell 구조·실험 시기와 함께 변해 인과효과를 분리하기 어렵다.
-6. 초기 100 cycle이 필요하므로 신규 설비에는 cold-start 기간이 존재한다.
-7. Batch shift가 크면 단일 모델의 성능이 급격히 달라질 수 있다.
+3. 최초 Batch 2 실패를 본 뒤 그룹 검증 규칙을 추가했으므로 개선된 Batch 2 수치는 사후 프로토콜 개정 결과다. 학습 누수는 없지만 새로운 독립 Batch에서 재확인해야 한다.
+4. 원논문과 전처리·Feature·split이 같지 않아 9.1%를 직접 재현했다고 말할 수 없다. 원논문은 Batch 1과 Batch 2를 합친 뒤 교차 배치한 41/43 Cell과 이후 생성된 40 Cell을 사용했다.
+5. 실험실 Cell 데이터는 ESS의 온도 구배, Cell 불균형과 가변 부하를 모두 대표하지 않는다.
+6. 충전정책별 표본 수가 작고 Cell 구조·실험 시기와 함께 변해 인과효과를 분리하기 어렵다.
+7. 초기 100 cycle이 필요하므로 신규 설비에는 cold-start 기간이 존재한다.
+8. Batch shift가 크면 단일 모델의 성능이 급격히 달라질 수 있다.
 
 ## 12. 재현성과 산출물
 
@@ -1498,7 +1678,7 @@ Batch 2의 평균 `delta_q_iqr`는 Batch 1보다 {b2_iqr_shift['standardized_mea
 - 한국어 그래프: `figures/day2/`
 - 본 보고서: `reports/DAY2_분석_보고서.md`
 
-Batch 2 결과 이후 재튜닝하지 않았으며, 최종 모델 설정과 평가 시각을 `external_evaluation_lock.json`에 기록했다.
+최초 결과와 개정 이유를 숨기지 않고 `reports/archive/`, `results/day2_v1_original/`에 보존했다. 개정 모델은 Batch 2 Target을 학습하거나 Hyperparameter 선택에 사용하지 않았으며, 프로토콜 변경과 평가 시각을 `external_evaluation_lock.json` 및 계획서 Decision Log에 기록했다.
 """
     path = paths.reports / "DAY2_분석_보고서.md"
     path.write_text(report, encoding="utf-8")
@@ -1518,8 +1698,9 @@ def update_plan_gates(plan_path: Path, selected_key: tuple[str, str]) -> None:
         text = text[:start] + block.replace("- [ ]", "- [x]") + text[end:]
     decision_header = "| 2026-10-02 | 계획 수립 | 없음 | 본 계획 확정 | Day 1 근거와 과제 요구사항을 구현 전에 고정 | 예 | 전체 |"
     decision_row = (
-        f"\n| 2026-10-02 | Gate 3~4 | 모델 미정 | {selected_key[0]} + {selected_key[1]} | "
-        "사전 1-SE·복잡도·hold-out 안정성 규칙 적용 | 예 | 모델·성능·보고서 |"
+        f"\n| 2026-10-02 | 사후 프로토콜 개정 | F2 Ridge | {selected_key[0]} + {selected_key[1]} | "
+        "최초 Batch 2 실패 후 외부조건 이동을 모사하는 Batch 1 C-rate 그룹 외삽 검증을 추가; "
+        "Batch 2·3 Target은 적합·선정에 미사용 | 예(개정 사실 명시) | 모델·성능·보고서 |"
     )
     if decision_row.strip() not in text:
         text = text.replace(decision_header, decision_header + decision_row)
@@ -1552,6 +1733,9 @@ def run(root: Path) -> dict[str, Any]:
     save_csv(modeling["dq_folds"], paths.results / "delta_q_candidate_folds.csv")
     save_csv(modeling["comparison"], paths.results / "model_comparison.csv")
     save_csv(modeling["fold_results"], paths.results / "cv_fold_results.csv")
+    save_csv(modeling["protocol_robust_feature_results"], paths.results / "protocol_robust_feature_results.csv")
+    save_csv(modeling["protocol_robust_model_results"], paths.results / "protocol_robust_model_results.csv")
+    save_csv(modeling["protocol_robust_fold_results"], paths.results / "protocol_robust_fold_results.csv")
     save_csv(modeling["ablation"], paths.results / "ablation_results.csv")
     save_csv(modeling["selection_log"], paths.results / "model_selection_log.csv")
 
@@ -1567,6 +1751,7 @@ def run(root: Path) -> dict[str, Any]:
 
     plot_model_comparison(modeling["comparison"], paths.figures)
     plot_ablation(modeling["ablation"], paths.figures)
+    plot_protocol_robustness(modeling["protocol_robust_feature_results"], paths.figures)
     plot_actual_vs_predicted(evaluation["predictions"], paths.figures)
     plot_residuals(evaluation["predictions"], paths.figures)
     plot_group_error(error_tables["life_group_error"], paths.figures)
@@ -1576,7 +1761,7 @@ def run(root: Path) -> dict[str, Any]:
     plot_batch_shift(error_tables["batch_shift"], paths.figures)
 
     report_path = write_report(paths, quality_summary, validation, modeling, evaluation, error_tables, importance)
-    update_plan_gates(paths.reports / "DAY2_분석_계획.md", modeling["selected_key"])
+    update_plan_gates(paths.root / "guide" / "DAY2_분석_계획.md", modeling["selected_key"])
 
     selected_row = modeling["comparison"][
         (modeling["comparison"]["feature_set"] == modeling["selected_key"][0])
@@ -1590,9 +1775,12 @@ def run(root: Path) -> dict[str, Any]:
         "selected_model": modeling["selected_key"][1],
         "selected_features": selected_features,
         "best_params": json.loads(selected_row["best_params"]),
-        "selection_rule": "1-SE + minimum feature count + minimum model complexity; fixed hold-out stability",
-        "batch2_used_for_selection": False,
-        "post_batch2_retuning": False,
+        "selection_rule": "Batch 1 nested leave-one-first-stage-C-rate-out minimax worst-group MAPE; fixed hold-out stability",
+        "protocol_amendment_motivated_by_prior_batch2_failure": True,
+        "batch2_target_used_in_model_fit_or_candidate_scoring": False,
+        "batch3_target_used_in_model_fit_or_candidate_scoring": False,
+        "batch2_is_fresh_blind_test": False,
+        "post_batch2_target_optimization": False,
     }
     (paths.results / "external_evaluation_lock.json").write_text(
         json.dumps(lock, ensure_ascii=False, indent=2), encoding="utf-8"

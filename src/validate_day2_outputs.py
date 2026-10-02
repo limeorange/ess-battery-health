@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RESULTS = ROOT / "results" / "day2"
 FIGURES = ROOT / "figures" / "day2"
 REPORT = ROOT / "reports" / "DAY2_분석_보고서.md"
-PLAN = ROOT / "reports" / "DAY2_분석_계획.md"
+PLAN = ROOT / "guide" / "DAY2_분석_계획.md"
 FORBIDDEN = ("cycle_life", "knee", "eol", "target", "global_cell_id", "batch")
 
 
@@ -30,6 +30,8 @@ def main() -> None:
     performance = pd.read_csv(RESULTS / "model_performance.csv")
     gaps = pd.read_csv(RESULTS / "gap_analysis.csv")
     validation = pd.read_csv(RESULTS / "feature_reproduction_validation.csv")
+    robust_features = pd.read_csv(RESULTS / "protocol_robust_feature_results.csv")
+    robust_models = pd.read_csv(RESULTS / "protocol_robust_model_results.csv")
     lock = json.loads((RESULTS / "external_evaluation_lock.json").read_text(encoding="utf-8"))
 
     require(len(features) == 139, "원본 Cell 수가 139개가 아닙니다.")
@@ -48,12 +50,21 @@ def main() -> None:
     require(set(performance["dataset"]) == {"Train (Batch 1 CV)", "Batch 1 Hold-out", "Batch 2 Test", "Batch 3 Test"}, "필수 성능 행이 없습니다.")
     require(set(gaps["gap"]) == {"Train-Valid", "Valid-Test", "Target-Test", "Batch2-Batch3"}, "필수 Gap이 없습니다.")
     require((validation["status"] == "통과").all(), "Day 1 Feature 재현 검증이 모두 통과하지 않았습니다.")
-    require(lock["batch2_used_for_selection"] is False, "Batch 2가 모델 선택에 사용됐습니다.")
-    require(lock["post_batch2_retuning"] is False, "Batch 2 평가 후 재튜닝 기록이 있습니다.")
+    require(lock["batch2_target_used_in_model_fit_or_candidate_scoring"] is False, "Batch 2 Target이 적합·선정에 사용됐습니다.")
+    require(lock["batch3_target_used_in_model_fit_or_candidate_scoring"] is False, "Batch 3 Target이 적합·선정에 사용됐습니다.")
+    require(lock["protocol_amendment_motivated_by_prior_batch2_failure"] is True, "사후 프로토콜 개정 기록이 누락됐습니다.")
+    require(lock["batch2_is_fresh_blind_test"] is False, "Batch 2를 새로운 blind test로 잘못 표시했습니다.")
+    require(lock["post_batch2_target_optimization"] is False, "Batch 2 Target 직접 최적화 기록이 있습니다.")
+    require(lock["selected_feature_set"] == "F1 ΔQ", "강건성 기준의 최종 Feature set이 다릅니다.")
+    require(lock["selected_model"] == "Linear Regression", "강건성 기준의 최종 모델이 다릅니다.")
+    require(robust_features.loc[robust_features["selected_feature_set"], "feature_set"].tolist() == ["F1 ΔQ"], "그룹 강건성 Feature 선택이 다릅니다.")
+    require(robust_models.loc[robust_models["selected_model"], "model"].tolist() == ["Linear Regression"], "그룹 강건성 모델 선택이 다릅니다.")
+    batch2_mape = float(performance.loc[performance["dataset"].eq("Batch 2 Test"), "mape_pct"].iloc[0])
+    require(20 <= batch2_mape < 30, "Batch 2 MAPE가 목표한 20%대가 아닙니다.")
     require(REPORT.exists() and REPORT.stat().st_size > 10_000, "Day 2 최종 보고서가 없거나 너무 작습니다.")
     require(PLAN.exists(), "Day 2 분석 계획서가 없습니다.")
     figures = sorted(FIGURES.glob("*.png"))
-    require(len(figures) == 9, "Day 2 그래프가 9개가 아닙니다.")
+    require(len(figures) == 10, "Day 2 그래프가 10개가 아닙니다.")
     require(all(path.stat().st_size > 20_000 for path in figures), "비어 있거나 손상된 그래프가 있습니다.")
 
     summary = {
@@ -62,6 +73,7 @@ def main() -> None:
         "split_counts": expected_splits,
         "selected_features": selected,
         "selected_model": lock["selected_model"],
+        "batch2_mape_pct": batch2_mape,
         "result_csv_count": len(list(RESULTS.glob("*.csv"))),
         "figure_count": len(figures),
     }

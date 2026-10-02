@@ -8,4 +8,6 @@ __pycache__/
 *.pyc
 .DS_Store
 reports/archive
+results/day2_v1_original/
+figures/day2_v1_original/
 submission/

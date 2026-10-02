@@ -18,7 +18,7 @@ Day 1에서는 배터리 수명 분포, 열화곡선, ΔQ(V), 충전조건과 �
 - 분석 단위: Cell당 1행
 - 주 평가지표: MAPE (%)
 - 보조 평가지표: MAE, RMSE, R², Median APE
-- 최종 모델: `F2 ΔQ+Capacity + Ridge(alpha=1.0)`
+- 최종 개정 모델: `F1 ΔQ + Linear Regression`
 - 최종 Feature: `delta_q_iqr`, `qd_mean`, `qd_slope`
 
 ### 데이터와 평가 역할
@@ -44,19 +44,23 @@ Batch 2 결과를 확인한 뒤 Feature나 Hyperparameter를 다시 조정하지
 ├── src/
 │   ├── day1_analysis.py                 # Day 1 전체 분석 파이프라인
 │   ├── day2_analysis.py                 # Day 2 전체 분석 파이프라인
+│   ├── day2_v2_improvement.py          # 원 논문형·ΔQ 곡선 추가 개선 실험
 │   ├── build_day2_notebooks.py          # 제출용 Day 2 노트북 생성
 │   ├── render_day2_figures.py           # Day 2 그래프 재생성
-│   └── validate_day2_outputs.py         # 산출물·누수·분할 자동검사
+│   ├── validate_day2_outputs.py         # 산출물·누수·분할 자동검사
+│   └── validate_day2_v2_outputs.py      # 추가 개선 실험·잠금·노트북 자동검사
 ├── results/
 │   ├── day1/                            # Day 1 통계표와 Feature 진단 결과
-│   └── day2/                            # Feature Table, CV, 예측, 성능·오류표
+│   ├── day2/                            # Feature Table, CV, 예측, 성능·오류표
+│   └── day2_v2/                         # 추가 개선 실험·잠금·외부 민감도 결과
 ├── figures/
 │   ├── day1/                            # Day 1 그래프
-│   └── day2/                            # Day 2 그래프
+│   ├── day2/                            # Day 2 그래프
+│   └── day2_v2/                         # 추가 개선 실험 그래프
 ├── reports/
 │   ├── DAY1_분석_보고서.md
-│   ├── DAY2_분석_계획.md
-│   └── DAY2_분석_보고서.md
+│   ├── DAY2_분석_보고서.md
+│   └── DAY2_추가_성능개선_보고서.md
 ├── requirements-day1.txt
 ├── requirements-day2.txt
 └── README.md
@@ -114,14 +118,18 @@ REBUILD_FROM_RAW = False
 RUN_FULL_CV_SEARCH = False
 ```
 
-원본 `.mat` 추출과 전체 Hyperparameter 탐색까지 다시 수행하려면 각각 `True`로 변경한다. 기본 설정에서도 최종 Ridge 모델 적합과 Batch 1 hold-out·Batch 2·Batch 3 예측은 노트북에서 실제로 다시 실행된다.
+원본 `.mat` 추출과 전체 Hyperparameter 탐색까지 다시 수행하려면 각각 `True`로 변경한다. 기본 설정에서도 최종 선형회귀 모델 적합과 Batch 1 hold-out·Batch 2·Batch 3 예측은 노트북에서 실제로 다시 실행된다.
 
 ### 4. 명령행 전체 재현과 검증
 
 ```bash
 python src/day2_analysis.py
 python src/validate_day2_outputs.py
+python src/day2_v2_improvement.py
+python src/validate_day2_v2_outputs.py
 ```
+
+마지막 명령은 최초 F2 Ridge와 개정 F1 선형회귀를 변경하지 않고, 원 논문형 Feature, ΔQ 전체 곡선과 다중 Cycle ΔQ의 추가 진단 결과를 `results/day2_v2/`에 생성한다.
 
 저장된 결과표에서 그래프만 다시 만들려면 다음을 실행한다.
 
@@ -131,7 +139,11 @@ python src/render_day2_figures.py
 
 ## EDA
 
-### Cycle Life 분포
+### 1. Cycle Life 분포 — 어떤 Batch에 단수명·장수명 Cell이 많은가?
+
+![Batch별 Cycle Life 분포](figures/day1/01_수명_분포.png)
+
+*Figure 1. Histogram과 누적분포로 비교한 Batch별 Cycle Life의 범위와 중심 위치*
 
 - 전체 관측 범위는 **392~1,935 cycle**이다.
 - 중앙값은 Batch 1 **858.5**, Batch 2 **472.0**, Batch 3 **1,005.5 cycle**로 크게 다르다.
@@ -142,7 +154,11 @@ python src/render_day2_figures.py
 
 **핵심 발견:** Batch 2의 짧은 수명은 몇 개의 불량 Cell이 만든 이상치가 아니라 Batch 전체에 형성된 저수명 군집이다. 따라서 Cell 몇 개를 제거하기보다 다른 Batch에서 모델이 버티는지 검증해야 한다.
 
-### 열화 곡선 분석
+### 2. 열화 곡선 — 방전용량은 일정한 속도로 감소하는가?
+
+![수명 구간별 열화 곡선](figures/day1/03_열화_곡선.png)
+
+*Figure 2. 단수명·중간수명·장수명 Cell의 cycle 진행에 따른 방전용량 변화*
 
 - 초기 100 cycle의 평균 방전용량은 장수명과 단수명을 일관되게 구분하지 못했다.
 - Knee 이후의 용량 감소 기울기는 Knee 이전보다 중앙값 기준 약 10배 이상 가팔랐다.
@@ -151,13 +167,17 @@ python src/render_day2_figures.py
 
 **핵심 발견:** 배터리 열화는 일정한 속도로 진행되지 않고 후반에 가속된다. Knee는 현상을 설명하는 데 유용하지만 미래정보이므로 예측 Feature에서는 제외해야 한다.
 
-### ΔQ(V) 곡선 분석
+### 3. ΔQ(V) 곡선 — 초기 100 cycle 안에서 수명 차이가 보이는가?
 
 ΔQ(V)는 동일 전압에서 cycle 100과 cycle 10의 누적 방전용량 차이다.
 
 ```text
 ΔQ(V) = Qdlin(cycle 100, V) - Qdlin(cycle 10, V)
 ```
+
+![수명 구간별 ΔQ 곡선](figures/day1/06_deltaQ_곡선.png)
+
+*Figure 3. 장수명·단수명 Cell에서 달라지는 cycle 100−10의 ΔQ(V) 형태와 변화 폭*
 
 - 단수명 Cell은 세 Batch 모두에서 ΔQ(V)의 변화 폭이 큰 방향으로 나타났다.
 - `delta_q_log10_var`와 Cycle Life의 Spearman 상관은 Batch 1 `-0.871`, Batch 2 `-0.709`, Batch 3 `-0.797`이었다.
@@ -166,7 +186,11 @@ python src/render_day2_figures.py
 
 **핵심 발견:** 총 방전용량이 아직 비슷해 보이는 초기 구간에도 전압별 곡선에는 수명과 연결된 변화가 나타났다. 따라서 ΔQ를 Core Feature군으로 사용하되, 중복 파생값을 모두 넣지 않고 대표값 하나를 교차검증으로 선택한다.
 
-### 충전 속도(C-rate)와 수명의 관계
+### 4. 충전 속도(C-rate) — 고속 충전 Cell의 수명은 정말 짧은가?
+
+![충전조건과 수명 비교](figures/day1/08_충전_정책.png)
+
+*Figure 4. 충전 프로토콜과 1단계 C-rate별 Cycle Life 분포 — 인과관계가 아닌 관찰적 비교*
 
 - 1단계 C-rate와 Cycle Life의 관계는 Batch 1 `ρ=-0.483`, Batch 2 `ρ=+0.055`로 방향과 크기가 달랐다.
 - 전체 데이터를 합친 상관도 `ρ=-0.027`로 매우 약했다.
@@ -175,7 +199,11 @@ python src/render_day2_figures.py
 
 **핵심 발견:** “고속 충전이면 반드시 수명이 짧다”는 단일 규칙은 지지되지 않았다. 높은 C-rate와 큰 초기 ΔQ 변화가 함께 나타났지만, 현재 관찰자료만으로 충전 속도의 인과효과를 단정할 수 없다.
 
-### 상관관계와 Feature 중복
+### 5. 상관관계와 Feature 중복 — 어떤 초기 신호를 모델에 남겨야 하는가?
+
+![초기 Feature와 Cycle Life 상관관계](figures/day1/09_초기_신호_상관.png)
+
+*Figure 5. Batch별 Feature–Cycle Life Spearman 상관 — 크기와 방향이 일관된 신호인지 확인*
 
 - 초기 `qd_mean`과 수명의 Batch별 상관은 `0.242`, `0.117`, `0.162`로 약했다.
 - `qd_slope`는 Batch별 관계 방향도 일정하지 않았다.
@@ -193,31 +221,30 @@ Day 1의 발견을 다음과 같이 Day 2에 연결했다.
 | 단계 | Feature 구성 | 검증 목적 | 반복 CV MAPE |
 |---|---|---|---:|
 | F0 | Capacity: `qd_mean`, `qd_slope` | 가장 단순한 기준선 | 18.95% |
-| F1 | ΔQ: `delta_q_iqr` | ΔQ 단독 기여 확인 | 8.26% |
-| F2 | ΔQ + Capacity | 서로 다른 초기 신호의 보완성 | **7.68%** |
+| F1 | ΔQ: `delta_q_iqr` | ΔQ 단독 기여 확인 | **8.26%** |
+| F2 | ΔQ + Capacity | 서로 다른 초기 신호의 보완성 | 7.68% |
 | F3 | F2 + IR·온도·충전시간 | Sensor의 추가 가치 | 7.91% |
 | F4 | F3 + C-rate·전환 SOC 등 | Charging의 추가 가치 | 7.87% |
 
+무작위 CV의 평균은 F2가 낮았지만, 1단계 C-rate를 하나씩 통째로 제외한 강건성 검증에서는 F1의 최악 그룹 MAPE가 **12.25%**, F2가 **16.55%**였다. 이 차이와 Day 1의 Capacity 관계 불안정성을 근거로 F1을 선택했다.
+
 ΔQ 후보는 `delta_q_log10_var`, `delta_q_iqr`, `delta_q_min`, `delta_q_abs_area`를 Batch 1 development의 동일한 반복 CV에서 비교했다. `delta_q_iqr`가 MAPE 8.26%로 가장 낮아 대표값으로 선택됐다.
 
-최종 Feature의 의미는 다음과 같다.
-
-- `delta_q_iqr`: cycle 10→100 사이 ΔQ 곡선 중앙 50%의 변화 폭
-- `qd_mean`: cycle 2~100의 평균 방전용량
-- `qd_slope`: cycle 2~100의 방전용량 변화 기울기
+최종 Feature는 `delta_q_iqr` 하나다. cycle 10→100 사이 ΔQ 곡선 중앙 50%의 변화 폭을 나타낸다. `qd_mean`, `qd_slope`는 무작위 CV에서 0.59%p의 소폭 개선을 보였지만, 새로운 C-rate 그룹의 최악 오차를 키워 최종 입력에서 제외했다.
 
 Knee, EOL, cycle 100 이후 값과 Target 파생값은 미래정보이므로 입력에서 제외했다.
 
 ### 모델 선택 및 근거
 
 - 후보 모델: Median Baseline, Linear Regression, Ridge, ElasticNet, 제한된 Gradient Boosting
-- 검증 방식: Batch 1 development에서 `RepeatedKFold(5 folds × 10 repeats)`
+- 기본 성능 추정: Batch 1 development의 `RepeatedKFold(5 folds × 10 repeats)`
+- 최종 선택: 1단계 C-rate 8개 집단을 하나씩 제외하는 nested leave-one-group-out, 최악 그룹 MAPE 최소화
 - 전처리: 결측 대체와 Scaling을 sklearn Pipeline 안에서 각 train fold에만 fit
 - 최저 CV MAPE: F4 + ElasticNet, **7.56%**, Feature 11개
-- 최종 모델: **F2 ΔQ+Capacity + Ridge(alpha=1.0)**, **7.68%**, Feature 3개
-- 선택 이유: 최저 후보와 차이가 0.12%p에 불과하고 1-SE 범위 안이면서 Feature 수와 모델 복잡도가 훨씬 작았다.
+- 최종 모델: **F1 ΔQ + Linear Regression**, 반복 CV **8.34%**, Feature 1개
+- 선택 이유: 미관측 C-rate의 최악 그룹 MAPE가 12.22%로 가장 낮고, Hyperparameter가 없어 작은 표본에서 선택 자유도가 가장 작았다.
 
-즉, 가장 낮은 점수 한 번보다 작은 표본에서의 안정성, 설명 가능성, 재현성을 우선했다.
+즉, 같은 충전조건 안의 평균 점수보다 보지 않은 운전조건에서의 최악 오차와 외삽 안정성을 우선했다.
 
 ![Feature Ablation](figures/day2/02_Feature_Ablation.png)
 
@@ -225,33 +252,46 @@ Knee, EOL, cycle 100 이후 값과 Target 파생값은 미래정보이므로 입
 
 | 평가 구간 | n | MAPE | MAE | RMSE | R² |
 |---|---:|---:|---:|---:|---:|
-| Batch 1 development 반복 CV | 36 | **7.68% ± 2.18%** | 64.24 | 78.99 | 0.740 |
-| Batch 1 fixed hold-out | 10 | **4.99%** | 41.93 | 58.38 | 0.853 |
-| Batch 2 외부 테스트 | 39 | **36.56%** | 188.86 | 210.93 | 0.075 |
-| Batch 3 추가 테스트 | 44 | **12.63%** | 162.76 | 265.17 | 0.270 |
+| Batch 1 development 반복 CV | 36 | **8.34% ± 2.43%** | 68.16 | 82.86 | 0.709 |
+| Batch 1 fixed hold-out | 10 | **5.28%** | 44.38 | 57.51 | 0.857 |
+| Batch 2 외부 테스트 | 39 | **24.68%** | 127.83 | 149.57 | 0.535 |
+| Batch 3 추가 테스트 | 44 | **14.10%** | 160.30 | 246.34 | 0.370 |
 
 ### 성능 Gap
 
 | Gap | 값 | 의미 |
 |---|---:|---|
-| Train–Valid | -2.69%p | Hold-out이 CV 평균보다 쉬운 표본 구성이었음 |
-| Valid–Test | +31.57%p | Batch 2로 이동하면서 일반화 성능이 크게 저하됨 |
-| Target–Test | +27.46%p | 원논문 참고치 9.1%와 Batch 2 결과의 차이 |
-| Batch 2–Batch 3 | -23.93%p | Batch 3 MAPE가 Batch 2보다 낮음 |
+| Train–Valid | -3.06%p | Hold-out이 CV 평균보다 쉬운 표본 구성이었음 |
+| Valid–Test | +19.41%p | 개선 후에도 Batch 2 이동 오차가 남음 |
+| Target–Test | +15.58%p | 원논문 참고치 9.1%와 Batch 2 결과의 차이 |
+| Batch 2–Batch 3 | -10.58%p | Batch 3 MAPE가 Batch 2보다 낮음 |
 
 원논문의 9.1%는 데이터 전처리, Feature, split 조건이 다르므로 직접적인 합격선이 아니라 참고치로만 사용했다.
 
 ![실제값과 예측값](figures/day2/03_실제값_예측값.png)
+
+### 추가 성능 개선 연구
+
+최초 F2 Ridge 결과를 보존한 상태에서 원 논문형 Scalar Feature, ΔQ(V) 전체 곡선과 다중 Cycle ΔQ를 비교했다. 후보와 Hyperparameter는 Batch 1 development의 nested CV에서만 선택했다.
+
+- Batch 1 nested CV 최저 후보: 논문형 ElasticNet `log(y)`, **7.21%**
+- 잠금 후보의 Batch 2 MAPE: **47.39%** — 내부 성능 개선이 외부 일반화로 이어지지 않음
+- 사전 정의 후보 외부 민감도 분석에서 ΔQ 곡선 PLS: **25.54%**
+- ΔQ 곡선 PCA–Ridge: **25.84%**
+
+ΔQ 전체 곡선 모델도 Batch 2에서 20%대에 도달했지만, Batch 2 결과를 본 사후 후보 비교이므로 최종 모델로 사용하지 않았다. 대신 Batch 1 C-rate 그룹 검증만으로 선택되는 F1 선형회귀를 개정 모델로 채택했다. 다만 이 개정 역시 최초 Batch 2 실패가 동기였으므로 24.68%를 새로운 blind test라고 주장하지 않으며, 새 독립 Batch의 확인이 필요하다. 상세한 곡선 실험은 [`DAY2_추가_성능개선_보고서.md`](reports/DAY2_추가_성능개선_보고서.md)에 정리했다.
+
+![사전 정의 후보의 Batch 2 외부진단](figures/day2_v2/04_사전후보_Batch2_외부진단.png)
 
 ## 오류 분석
 
 ### 가장 크게 틀린 Cell과 공통점
 
 - 최악의 예측은 `Batch2_006`이었다.
-- 실제 수명은 393 cycle이지만 667 cycle로 예측해 APE가 **69.82%**였다.
-- Batch 2 평균 실제 수명은 565.7 cycle, 평균 예측은 741.4 cycle로 평균 **175.7 cycle 과대 예측**했다.
-- Batch 2의 39개 중 35개, 즉 **89.7%가 과대 예측**이었다.
-- 단수명 Cell 28개의 MAPE는 **39.48%**였고 이 중 26개를 과대 예측했다.
+- 실제 수명은 393 cycle이지만 612 cycle로 예측해 APE가 **55.80%**였다.
+- Batch 2 평균 실제 수명은 565.7 cycle, 평균 예측은 678.4 cycle로 평균 **112.7 cycle 과대 예측**했다.
+- Batch 2의 39개 중 32개, 즉 **82.1%가 과대 예측**이었다.
+- 단수명 Cell 28개의 MAPE는 **25.91%**였고 이 중 24개를 과대 예측했다.
 
 ### 원인 가설
 
@@ -317,8 +357,11 @@ Batch 2에서는 과대 예측이 지배적이므로 단순 평균오차 문제�
 | [`results/day2/model_performance.csv`](results/day2/model_performance.csv) | 최종 성능표 |
 | [`results/day2/predictions.csv`](results/day2/predictions.csv) | Cell별 실제값·예측값·잔차 |
 | [`results/day2/gap_analysis.csv`](results/day2/gap_analysis.csv) | 네 종류의 성능 Gap |
+| [`results/day2_v2/nested_cv_comparison.csv`](results/day2_v2/nested_cv_comparison.csv) | 원 논문형·ΔQ 곡선·다중 Cycle 후보의 nested CV 비교 |
+| [`results/day2_v2/predeclared_candidate_external_performance.csv`](results/day2_v2/predeclared_candidate_external_performance.csv) | 사전 정의 후보 전체의 사후 외부 민감도 분석 |
 | [`reports/DAY1_분석_보고서.md`](reports/DAY1_분석_보고서.md) | Day 1 상세 EDA 보고서 |
 | [`reports/DAY2_분석_보고서.md`](reports/DAY2_분석_보고서.md) | Day 2 모델링·오류 분석 보고서 |
+| [`reports/DAY2_추가_성능개선_보고서.md`](reports/DAY2_추가_성능개선_보고서.md) | Batch 2 20%대 가능성을 검토한 추가 연구와 한계 |
 
 ## 참고문헌
 
@@ -328,4 +371,4 @@ Batch 2에서는 과대 예측이 지배적이므로 단순 평균오차 문제�
 
 | 담당자 | 역할 |
 |---|---|
-| U094 이수현 | EDA, Feature Engineering, 모델 개발, Batch 2·3 성능 평가, 오류·Batch shift 분석, 보고서 작성 |
+| 이수현 | EDA, Feature Engineering, 모델 개발, Batch 2·3 성능 평가, 오류·Batch shift 분석, 보고서 작성 |

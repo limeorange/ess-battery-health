@@ -1,0 +1,18 @@
+{
+  "status": "locked_before_v2_external_prediction",
+  "created_at": "2026-10-02T20:31:52.202234+09:00",
+  "study_type": "post-hoc improvement study; official v1 unchanged",
+  "selection_data": "Batch 1 development only",
+  "selected_candidate": "논문형 ElasticNet log(y)",
+  "feature_family": "원 논문형 Scalar",
+  "feature_count": 17,
+  "best_params": {
+    "regressor__model__alpha": 0.1,
+    "regressor__model__l1_ratio": 0.1
+  },
+  "nested_cv_mape_pct": 7.212419866174349,
+  "batch1_holdout_mape_pct": 7.817879890227783,
+  "batch2_target_used_for_selection": false,
+  "batch3_target_used_for_selection": false,
+  "post_external_retuning_allowed": false
+}

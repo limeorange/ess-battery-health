@@ -1,0 +1,13 @@
+﻿feature_name,feature_family,source_field,cycle_range,formula,unit,missing_rule,transform_rule,leakage_check,official_v1_replacement
+qd_cycle2,원 논문형 용량,summary.QDischarge,2,QD at actual cycle 2,Ah,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+qd_cycle100,원 논문형 용량,summary.QDischarge,100,QD at actual cycle 100,Ah,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+qd_max_minus_cycle2,원 논문형 용량,summary.QDischarge,2~100,max(QD)-QD(cycle 2),Ah,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+qd_max_cycle,원 논문형 용량,summary.QDischarge,2~100,argmax cycle of QD,cycle,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+qd_linear_slope_2_100,원 논문형 용량,summary.QDischarge,2~100,OLS slope of QD~cycle,Ah/cycle,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+qd_linear_intercept_2_100,원 논문형 용량,summary.QDischarge,2~100,OLS intercept of QD~cycle,Ah,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+qd_slope_95_100,후기 초기구간 용량,summary.QDischarge,95~100,OLS slope of QD~cycle,Ah/cycle,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+charge_time_mean_2_6,충전시간,summary.chargetime,2~6,mean(valid charge time),min,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+ir_min_2_100,내부저항,summary.IR,2~100,min(valid IR),ohm,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+ir_cycle100_minus_cycle2,내부저항,summary.IR,"2,100",IR(100)-IR(2),ohm,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+delta_q_curve_100_10,ΔQ 전체 곡선,cycles.Qdlin,"10,100","Qdlin(100,V)-Qdlin(10,V), 1000-point grid",Ah,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False
+delta_q_trajectory,ΔQ 다중 Cycle,cycles.Qdlin,"10,20,...,100","Qdlin(k,V)-Qdlin(10,V), k=20..100",Ah,각 CV train fold의 median imputation,Scaler/PCA/PLS를 Pipeline 안에서 fold train에만 fit,실제 cycle 번호 100 이하,False

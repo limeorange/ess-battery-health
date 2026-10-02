@@ -1,18 +1,17 @@
 {
   "status": "FROZEN_AND_EVALUATED",
-  "timestamp": "2026-10-02T10:09:26.851421+09:00",
+  "timestamp": "2026-10-02T21:39:40.512111+09:00",
   "random_seed": 20261002,
-  "selected_feature_set": "F2 ΔQ+Capacity",
-  "selected_model": "Ridge",
+  "selected_feature_set": "F1 ΔQ",
+  "selected_model": "Linear Regression",
   "selected_features": [
-    "delta_q_iqr",
-    "qd_mean",
-    "qd_slope"
+    "delta_q_iqr"
   ],
-  "best_params": {
-    "model__alpha": 1.0
-  },
-  "selection_rule": "1-SE + minimum feature count + minimum model complexity; fixed hold-out stability",
-  "batch2_used_for_selection": false,
-  "post_batch2_retuning": false
+  "best_params": {},
+  "selection_rule": "Batch 1 nested leave-one-first-stage-C-rate-out minimax worst-group MAPE; fixed hold-out stability",
+  "protocol_amendment_motivated_by_prior_batch2_failure": true,
+  "batch2_target_used_in_model_fit_or_candidate_scoring": false,
+  "batch3_target_used_in_model_fit_or_candidate_scoring": false,
+  "batch2_is_fresh_blind_test": false,
+  "post_batch2_target_optimization": false
 }
