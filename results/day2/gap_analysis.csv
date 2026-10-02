@@ -1,0 +1,5 @@
+﻿gap,value_pct_point,interpretation
+Train-Valid,-2.6865811823498307,양수면 내부 일반화 저하
+Valid-Test,31.570485669452083,양수면 Batch 일반화 저하
+Target-Test,27.460311388725707,원논문 9.1% 대비 차이
+Batch2-Batch3,-23.934592603042283,양수면 Batch 3 성능이 더 낮음

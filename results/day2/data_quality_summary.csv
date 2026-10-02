@@ -1,0 +1,4 @@
+﻿batch,raw_cells,target_available,cycle_10_available,cycle_100_available,delta_q_available,policy_parse_success,supervised_rows,delta_q_availability_pct,target_availability_pct
+Batch 1,46,46,46,46,46,46,46,100.0,100.0
+Batch 2,47,39,47,47,47,47,39,100.0,82.97872340425532
+Batch 3,46,44,46,46,46,46,44,100.0,95.65217391304348

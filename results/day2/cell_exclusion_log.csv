@@ -1,0 +1,11 @@
+﻿batch,global_cell_id,cycle_life,target_available,summary_length,summary_fields_same_length,summary_cycles_match_objects,summary_cycles_strictly_increasing,duplicate_cycle_count,summary_min_cycle,summary_max_cycle,cycle_10_available,cycle_100_available,first_cycle_all_zero,early_qd_valid_count,early_ir_valid_count,early_temp_valid_count,delta_q_available,delta_q_point_count,delta_q_reason,policy_parse_success,included_for_supervised,exclusion_reason
+Batch 2,Batch2_022,,False,920,True,True,True,0,1.0,920.0,True,True,False,98,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_023,,False,1152,True,True,True,0,1.0,1152.0,True,True,False,98,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_035,,False,423,True,True,True,0,1.0,423.0,True,True,False,98,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_036,,False,280,True,True,True,0,1.0,280.0,True,True,False,98,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_037,,False,101,True,True,True,0,1.0,101.0,True,True,False,98,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_038,,False,101,True,True,True,0,1.0,101.0,True,True,False,98,99,89,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_039,,False,434,True,True,True,0,1.0,434.0,True,True,False,98,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 2,Batch2_040,,False,459,True,True,True,0,1.0,459.0,True,True,False,98,0,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 3,Batch3_023,,False,2189,True,True,True,0,1.0,2189.0,True,True,False,99,99,99,True,1000,계산 완료,True,False,cycle_life 결측
+Batch 3,Batch3_032,,False,2237,True,True,True,0,1.0,2237.0,True,True,False,99,99,99,True,1000,계산 완료,True,False,cycle_life 결측

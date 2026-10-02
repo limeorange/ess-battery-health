@@ -1,0 +1,11 @@
+{
+  "python": "3.12.6 (main, Sep  6 2024, 19:03:47) [Clang 15.0.0 (clang-1500.1.0.2.5)]",
+  "platform": "macOS-26.6.2-arm64-arm-64bit",
+  "numpy": "2.1.1",
+  "pandas": "2.2.3",
+  "h5py": "3.16.0",
+  "sklearn": "1.5.2",
+  "matplotlib": "3.9.2",
+  "seaborn": "0.13.2",
+  "font": "Noto Sans KR"
+}

@@ -1,0 +1,19 @@
+{
+  "random_seed": 20261002,
+  "raw_cells": 139,
+  "labeled_cells": 129,
+  "development_cells": 36,
+  "holdout_cells": 10,
+  "batch2_test_cells": 39,
+  "batch3_test_cells": 44,
+  "selected_feature_set": "F2 ΔQ+Capacity",
+  "selected_model": "Ridge",
+  "selected_features": [
+    "delta_q_iqr",
+    "qd_mean",
+    "qd_slope"
+  ],
+  "report": "reports/DAY2_분석_보고서.md",
+  "result_tables": 22,
+  "figures": 9
+}

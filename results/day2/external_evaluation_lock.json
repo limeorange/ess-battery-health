@@ -1,0 +1,18 @@
+{
+  "status": "FROZEN_AND_EVALUATED",
+  "timestamp": "2026-10-02T10:09:26.851421+09:00",
+  "random_seed": 20261002,
+  "selected_feature_set": "F2 ΔQ+Capacity",
+  "selected_model": "Ridge",
+  "selected_features": [
+    "delta_q_iqr",
+    "qd_mean",
+    "qd_slope"
+  ],
+  "best_params": {
+    "model__alpha": 1.0
+  },
+  "selection_rule": "1-SE + minimum feature count + minimum model complexity; fixed hold-out stability",
+  "batch2_used_for_selection": false,
+  "post_batch2_retuning": false
+}

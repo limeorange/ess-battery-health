@@ -1,0 +1,6 @@
+﻿feature_set,model,feature_count,model_complexity_rank,cv_mape_mean,cv_mape_std,cv_mape_se,cv_mae_mean,cv_rmse_mean,cv_r2_mean,best_params,features,within_one_se
+F0 Capacity,Ridge,2,2,18.947288793720613,4.868758141155525,0.19852992808450093,157.72043494829745,196.0494586832699,-0.43847617014294665,"{""model__alpha"": 100.0}","qd_mean, qd_slope",False
+F1 ΔQ,Ridge,1,2,8.262631840794148,2.4126799859158874,0.050745433324977454,67.76176673360528,82.80378352100655,0.7120868651370422,"{""model__alpha"": 1.0}",delta_q_iqr,False
+F2 ΔQ+Capacity,Ridge,3,2,7.676406901623457,2.1780120488094528,0.13899036095349634,64.24038485546235,78.99120097644833,0.7401561920601633,"{""model__alpha"": 1.0}","delta_q_iqr, qd_mean, qd_slope",True
+F3 +Sensor,Ridge,6,2,7.914717227342041,2.1471893971863465,0.15489204033016743,65.82368096662096,76.36183634544135,0.7680753154487745,"{""model__alpha"": 1.0}","delta_q_iqr, qd_mean, qd_slope, ir_mean, tavg_mean, chargetime_mean",False
+F4 +Charging,Ridge,11,2,7.87010144018631,2.3014554244276986,0.1774849923612153,66.19633336458091,80.03383516449225,0.7433631340327008,"{""model__alpha"": 10.0}","delta_q_iqr, qd_mean, qd_slope, ir_mean, tavg_mean, chargetime_mean, c_rate_stage1, switch_soc_pct, c_rate_stage2, policy_new_structure, policy_slow_cycle",False

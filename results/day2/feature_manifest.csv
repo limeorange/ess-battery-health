@@ -1,0 +1,15 @@
+﻿feature_name,feature_group,source_field,cycle_range,formula,unit,missing_rule,ablation_stage,day1_evidence,leakage_check,final_selected
+qd_mean,Capacity,summary.QDischarge,2~100,mean(valid QD),Ah,fold median+flag,F0,초기 용량 기준,cycle 100 이내 또는 사전 정책,True
+qd_slope,Capacity,summary.QDischarge,2~100,slope(QD~cycle),Ah/cycle,fold median+flag,F0,초기 용량 변화,cycle 100 이내 또는 사전 정책,True
+delta_q_log10_var,DeltaQ,cycles.Qdlin,"10,100",log10(var(Q100-Q10)+1e-12),log10(Ah²),fold median+flag,F1,세 Batch에서 강하고 일관된 관계,cycle 100 이내 또는 사전 정책,False
+delta_q_iqr,DeltaQ alternative,cycles.Qdlin,"10,100",Q75(ΔQ)-Q25(ΔQ),Ah,fold median+flag,Screen,이상값에 강한 대체 후보,cycle 100 이내 또는 사전 정책,True
+delta_q_min,DeltaQ alternative,cycles.Qdlin,"10,100",min(ΔQ),Ah,fold median+flag,Screen,국소 변화 대체 후보,cycle 100 이내 또는 사전 정책,False
+delta_q_abs_area,DeltaQ alternative,cycles.Qdlin,"10,100",integral(abs(ΔQ))dV,Ah·V,fold median+flag,Screen,전압 전구간 변화 대체 후보,cycle 100 이내 또는 사전 정책,False
+ir_mean,Sensor,summary.IR,2~100,mean(valid IR),Ω,fold median+flag,F3,저항 수준 대표,cycle 100 이내 또는 사전 정책,False
+tavg_mean,Sensor,summary.Tavg,2~100,mean(valid Tavg),°C,fold median+flag,F3,온도 수준 대표,cycle 100 이내 또는 사전 정책,False
+chargetime_mean,Sensor,summary.chargetime,2~100,mean(valid charge time),min,fold median+flag,F3,충전시간 대표,cycle 100 이내 또는 사전 정책,False
+c_rate_stage1,Charging,policy_readable,사전 설정,parsed first-stage C-rate,C,fold median+flag,F4,연속형 충전조건,cycle 100 이내 또는 사전 정책,False
+switch_soc_pct,Charging,policy_readable,사전 설정,parsed switching SOC,%,fold median+flag,F4,연속형 충전조건,cycle 100 이내 또는 사전 정책,False
+c_rate_stage2,Charging,policy_readable,사전 설정,parsed second-stage C-rate,C,fold median+flag,F4,연속형 충전조건,cycle 100 이내 또는 사전 정책,False
+policy_new_structure,Charging,policy_readable,사전 설정,newstructure flag,bool,none,F4,Cell 구조 보조정보,cycle 100 이내 또는 사전 정책,False
+policy_slow_cycle,Charging,policy_readable,사전 설정,slowcycle flag,bool,none,F4,정책 보조정보,cycle 100 이내 또는 사전 정책,False

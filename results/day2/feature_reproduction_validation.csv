@@ -1,0 +1,10 @@
+﻿check,matched_cells,max_abs_difference,status,detail
+qd_mean,139,2.220446049250313e-16,통과,원본 .mat 재추출값과 Day 1 결과 비교
+qd_slope,139,9.971949481435427e-17,통과,원본 .mat 재추출값과 Day 1 결과 비교
+ir_mean,132,9.71445146547012e-17,통과,원본 .mat 재추출값과 Day 1 결과 비교
+tavg_mean,139,3.552713678800501e-15,통과,원본 .mat 재추출값과 Day 1 결과 비교
+chargetime_mean,139,1.7763568394002505e-15,통과,원본 .mat 재추출값과 Day 1 결과 비교
+delta_q_log10_var,139,4.440892098500626e-16,통과,원본 .mat 재추출값과 Day 1 결과 비교
+delta_q_iqr,139,9.75781955236954e-17,통과,원본 .mat 재추출값과 Day 1 결과 비교
+delta_q_min,139,9.71445146547012e-17,통과,원본 .mat 재추출값과 Day 1 결과 비교
+delta_q_abs_area,139,9.8879238130678e-17,통과,원본 .mat 재추출값과 Day 1 결과 비교

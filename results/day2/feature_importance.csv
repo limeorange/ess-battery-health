@@ -1,0 +1,4 @@
+﻿feature,importance,absolute_importance,importance_type
+delta_q_iqr,-160.66676664810765,160.66676664810765,표준화 계수
+qd_mean,32.029145684940445,32.029145684940445,표준화 계수
+qd_slope,-0.5300120116298486,0.5300120116298486,표준화 계수
