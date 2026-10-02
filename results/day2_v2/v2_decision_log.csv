@@ -1,0 +1,5 @@
+﻿stage,decision,evidence,uses_batch2_for_selection
+공식 v1 보존,F2 Ridge 유지,사전 계획에 따른 최초 Batch 2 평가 36.56%,False
+v2 잠금 선택,논문형 ElasticNet log(y),Batch 1 nested CV 7.21%,False
+v2 잠금 외부평가,잠금 유지·재튜닝 금지,Batch 2 MAPE 47.39%,False
+사전 후보 외부진단,공식 모델로 승격하지 않음,ΔQ 곡선 PLS log(y)가 Batch 2 25.54%,True

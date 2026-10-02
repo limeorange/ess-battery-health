@@ -17,7 +17,7 @@ python src/day1_analysis.py
 ## 환경 설치
 
 ```bash
-python -m pip install -r requirements-day1.txt
+python -m pip install -r requirements.txt
 ```
 
 ## 제출용 PDF 재생성

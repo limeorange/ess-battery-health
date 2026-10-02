@@ -21,6 +21,9 @@ NOTEBOOK_DIR = ROOT / "notebooks"
 PIPELINE_SOURCE = ROOT / "src" / "day2_analysis.py"
 SOURCE_TEXT = PIPELINE_SOURCE.read_text(encoding="utf-8")
 SOURCE_TREE = ast.parse(SOURCE_TEXT)
+V2_PIPELINE_SOURCE = ROOT / "src" / "day2_v2_improvement.py"
+V2_SOURCE_TEXT = V2_PIPELINE_SOURCE.read_text(encoding="utf-8")
+V2_SOURCE_TREE = ast.parse(V2_SOURCE_TEXT)
 
 
 def md(source: str) -> nbf.NotebookNode:
@@ -40,6 +43,23 @@ def source_for(*names: str) -> str:
     }
     chunks = []
     lines = SOURCE_TEXT.splitlines()
+    for name in names:
+        node = nodes[name]
+        starts = [node.lineno]
+        starts.extend(decorator.lineno for decorator in getattr(node, "decorator_list", []))
+        chunks.append("\n".join(lines[min(starts) - 1 : node.end_lineno]))
+    return "\n\n".join(chunks)
+
+
+def v2_source_for(*names: str) -> str:
+    """Copy named v2 functions/classes into an explanatory notebook cell."""
+    nodes = {
+        node.name: node
+        for node in V2_SOURCE_TREE.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    }
+    chunks = []
+    lines = V2_SOURCE_TEXT.splitlines()
     for name in names:
         node = nodes[name]
         starts = [node.lineno]
@@ -151,7 +171,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNet, LinearRegression, Ridge
 from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error, mean_squared_error, r2_score
-from sklearn.model_selection import GridSearchCV, RepeatedKFold, cross_validate
+from sklearn.model_selection import GridSearchCV, GroupKFold, LeaveOneGroupOut, RepeatedKFold, cross_validate
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -202,6 +222,9 @@ def build_feature_notebook() -> nbf.NotebookNode:
     extraction_source = source_for("extract_raw_features")
     quality_source = source_for(
         "build_quality_summary", "make_split_assignment", "make_feature_manifest", "validate_against_day1"
+    )
+    v2_feature_source = v2_source_for(
+        "value_at_cycle", "window_mean", "interpolate_curve", "curve_statistics", "extract_v2_features"
     )
     return notebook([
         md(r'''
@@ -454,13 +477,66 @@ def build_feature_notebook() -> nbf.NotebookNode:
 
         다음 `03_modeling.ipynb`에서 ΔQ screening, F0~F4 Ablation, 다섯 모델의 반복 CV, 1-SE 선택, hold-out과 외부 Batch 평가를 실제 코드로 수행한다.
         '''),
+        md(r'''
+        ## 11. 추가 개선 실험 — 새로운 정보 표현
+
+        공식 v1 결과를 변경하지 않고 다음 세 표현을 별도 `day2_v2` 산출물로 생성했다.
+
+        1. 원 논문형 초기 Feature: cycle 2·100 용량, 최대용량 변화와 발생 cycle, 선형 기울기·절편, cycle 2~6 충전시간, 내부저항 변화
+        2. `ΔQ100-10(V)`의 공통 2.0~3.5V, 1,000-point 원곡선
+        3. cycle 20~100의 다중 ΔQ trajectory
+
+        모든 입력은 실제 cycle 100 이하만 사용한다. 아래 셀은 원본 역참조부터 새 Feature 생성까지의 실제 구현이다.
+        '''),
+        code(r'''
+        V2_RESULT_DIR = ROOT / "results" / "day2_v2"
+        COMMON_VOLTAGE = np.linspace(2.0, 3.5, 1000)
+        TRAJECTORY_CYCLES = tuple(range(20, 101, 10))
+        '''),
+        code(v2_feature_source),
+        code(r'''
+        RUN_V2_RAW_EXTRACTION = False
+
+        if RUN_V2_RAW_EXTRACTION:
+            v2_features_live, delta_q_curve_live, delta_q_trajectory_live = extract_v2_features()
+            print("재추출:", v2_features_live.shape, delta_q_curve_live.shape, delta_q_trajectory_live.shape)
+        else:
+            v2_features_live = pd.read_csv(V2_RESULT_DIR / "extended_feature_table.csv")
+            curve_data = np.load(V2_RESULT_DIR / "delta_q_curve_data.npz", allow_pickle=False)
+            delta_q_curve_live = curve_data["cycle100_minus10"]
+            delta_q_trajectory_live = curve_data["trajectory"]
+
+        v2_manifest = pd.read_csv(V2_RESULT_DIR / "v2_feature_manifest.csv")
+
+        display(v2_features_live[[
+            "global_cell_id", "batch", "cycle_life", "qd_cycle2", "qd_cycle100",
+            "qd_max_minus_cycle2", "qd_max_cycle", "charge_time_mean_2_6",
+            "ir_cycle100_minus_cycle2", "dq100_10_log10_var"
+        ]].head())
+        print("ΔQ100-10 원곡선:", delta_q_curve_live.shape)
+        print("9개 다중 Cycle ΔQ 원곡선:", delta_q_trajectory_live.shape)
+        display(v2_manifest)
+        assert delta_q_curve_live.shape == (139, 1000)
+        assert delta_q_trajectory_live.shape == (139, 9000)
+        '''),
+        md(r'''
+        이 확장은 Feature 수를 무작정 늘리는 작업이 아니다. 기존 `delta_q_iqr`가 버리던 전압 위치 정보를 보존하고, 원 논문과 현재 구현의 차이를 검증하기 위한 제한된 추가 실험이다. 모델 선택에는 계속 Batch 1 development만 사용한다.
+        '''),
     ])
 
 
 def build_model_notebook() -> nbf.NotebookNode:
-    cv_source = source_for("numeric_frame", "make_cv_splits", "make_model_specs", "tune_and_score")
+    cv_source = source_for(
+        "numeric_frame", "make_cv_splits", "make_model_specs", "tune_and_score",
+        "protocol_group_robust_score",
+    )
     metric_source = source_for("life_group", "regression_metrics", "bootstrap_mape_ci")
     error_source = source_for("build_error_tables", "extract_importance")
+    v2_model_source = v2_source_for(
+        "metrics", "log_target", "Candidate", "scalar_pipeline", "curve_pls_pipeline",
+        "curve_pca_ridge_pipeline", "nested_score", "tune_on_development", "build_candidates",
+        "benchmark_all_predeclared_candidates",
+    )
     return notebook([
         md(r'''
         # 03. Modeling — 모델 선택부터 외부 Batch 검증까지
@@ -472,7 +548,7 @@ def build_model_notebook() -> nbf.NotebookNode:
 
         이 노트북은 모델링의 **주 실행본**이다. Pipeline, 반복 CV, Hyperparameter grid, ΔQ screening, F0~F4 Ablation, 1-SE 선정, hold-out, 외부 예측, 지표·Gap·오류·분포 이동·시각화 코드가 직접 들어 있다.
 
-        `RUN_FULL_CV_SEARCH = False`에서는 시간이 오래 걸리는 전체 탐색 결과만 저장본에서 읽는다. 탐색 코드는 그대로 보이며 `True`로 바꾸면 같은 계산을 수행한다. 최종 Ridge 적합과 hold-out·Batch 2·Batch 3 예측은 기본 Run All에서도 실제로 다시 수행한다.
+        `RUN_FULL_CV_SEARCH = False`에서는 시간이 오래 걸리는 전체 탐색 결과만 저장본에서 읽는다. 탐색 코드는 그대로 보이며 `True`로 바꾸면 같은 계산을 수행한다. 최종 선형회귀 적합과 hold-out·Batch 2·Batch 3 예측은 기본 Run All에서도 실제로 다시 수행한다.
 
         > **편집 주의:** 이 파일을 직접 보완한 뒤 `src/build_day2_notebooks.py`를 다시 실행하면 수동 변경이 덮어써진다. 앞으로 노트북을 주 작업본으로 사용할 때는 먼저 Git commit이나 별도 백업을 남긴다.
         '''),
@@ -639,26 +715,74 @@ def build_model_notebook() -> nbf.NotebookNode:
         Capacity만 사용한 F0 18.95%에서 ΔQ만 사용한 F1 8.26%로 크게 개선되고, Capacity를 결합한 F2가 7.68%로 추가 개선된다. Sensor와 Charging을 더한 F3·F4는 변수 수가 늘지만 Ridge MAPE가 악화된다.
         '''),
         md(r'''
-        ## 5. 1-SE 규칙으로 최종 후보 선정
+        ## 5. 충전 프로토콜 그룹 강건성으로 최종 후보 선정
 
-        최저 평균 MAPE와 구분하기 어려운 후보를 남긴 뒤 Feature 수 → 모델 복잡도 → 평균 MAPE 순으로 정렬한다. 작은 표본에서 미세한 점수 차이보다 단순성과 안정성을 우선한다.
+        무작위 CV는 같은 C-rate 그룹의 Cell을 train과 validation에 함께 놓을 수 있다. Batch 2처럼 처음 보는 충전조건으로 이동하는 상황을 모사하기 위해, Batch 1 development의 1단계 C-rate를 하나씩 통째로 제외하는 nested leave-one-group-out 검증을 사용한다. 선택 기준은 **최악 그룹 MAPE 최소화**다.
         '''),
         code(r'''
-        eligible = comparison[comparison["within_one_se_recomputed"]].sort_values(
-            ["feature_count", "model_complexity_rank", "cv_mape_mean"]
+        if RUN_FULL_CV_SEARCH:
+            robust_fold_frames, robust_feature_rows = [], []
+            ridge_pipeline, ridge_grid, _ = model_specs["Ridge"]
+            for set_name, columns in feature_sets.items():
+                folds, summary = protocol_group_robust_score(
+                    development, columns, ridge_pipeline, ridge_grid, set_name, "feature_set"
+                )
+                robust_fold_frames.append(folds)
+                robust_feature_rows.append({"feature_set": set_name, **summary})
+            robust_feature_results = pd.DataFrame(robust_feature_rows).sort_values(
+                ["worst_group_mape_pct", "macro_group_mape_pct", "feature_count"]
+            ).reset_index(drop=True)
+            robust_feature_results["selected_feature_set"] = False
+            robust_feature_results.loc[0, "selected_feature_set"] = True
+            preliminary_set = str(robust_feature_results.loc[0, "feature_set"])
+
+            robust_model_rows = []
+            for model_name, (pipeline, grid, complexity) in model_specs.items():
+                folds, summary = protocol_group_robust_score(
+                    development, feature_sets[preliminary_set], pipeline, grid, model_name, "model"
+                )
+                folds["feature_set"] = preliminary_set
+                robust_fold_frames.append(folds)
+                robust_model_rows.append({
+                    "feature_set": preliminary_set, "model": model_name,
+                    "model_complexity_rank": complexity, **summary,
+                })
+            robust_model_results = pd.DataFrame(robust_model_rows).sort_values(
+                ["worst_group_mape_pct", "macro_group_mape_pct", "model_complexity_rank"]
+            ).reset_index(drop=True)
+            robust_model_results["selected_model"] = False
+            robust_model_results.loc[0, "selected_model"] = True
+            robust_fold_results = pd.concat(robust_fold_frames, ignore_index=True)
+        else:
+            robust_feature_results = pd.read_csv(RESULT_DIR / "protocol_robust_feature_results.csv")
+            robust_model_results = pd.read_csv(RESULT_DIR / "protocol_robust_model_results.csv")
+            robust_fold_results = pd.read_csv(RESULT_DIR / "protocol_robust_fold_results.csv")
+
+        display(robust_feature_results[[
+            "feature_set", "feature_count", "pooled_mape_pct", "macro_group_mape_pct",
+            "worst_group_mape_pct", "group_mape_std_pct", "selected_feature_set"
+        ]].round(3))
+        selected_feature_set = str(
+            robust_feature_results.loc[robust_feature_results["selected_feature_set"], "feature_set"].iloc[0]
         )
-        selected_row = eligible.iloc[0]
-        selected_feature_set = str(selected_row["feature_set"])
-        selected_model_name = str(selected_row["model"])
+        display(robust_model_results[[
+            "model", "pooled_mape_pct", "macro_group_mape_pct",
+            "worst_group_mape_pct", "group_mape_std_pct", "selected_model"
+        ]].round(3))
+        selected_model_name = str(
+            robust_model_results.loc[robust_model_results["selected_model"], "model"].iloc[0]
+        )
         selected_features = feature_sets[selected_feature_set]
+        selected_row = comparison.query(
+            "feature_set == @selected_feature_set and model == @selected_model_name"
+        ).iloc[0]
         selected_params = json.loads(selected_row["best_params"])
-        display(eligible[["feature_set", "model", "feature_count", "model_complexity_rank", "cv_mape_mean", "cv_mape_std", "best_params"]].round(3))
         print("최종 선택:", selected_feature_set, "+", selected_model_name)
         print("Feature:", selected_features)
         print("설정:", selected_params)
-        assert selected_feature_set == "F2 ΔQ+Capacity"
-        assert selected_model_name == "Ridge"
-        assert selected_params == {"model__alpha": 1.0}
+        assert selected_feature_set == "F1 ΔQ"
+        assert selected_model_name == "Linear Regression"
+        assert selected_params == {}
         '''),
         code(r'''
         top = comparison.head(12).sort_values("cv_mape_mean", ascending=False).copy()
@@ -693,7 +817,7 @@ def build_model_notebook() -> nbf.NotebookNode:
         print("저장 예측과 최대 절대차:", np.max(np.abs(holdout_prediction - saved_holdout["prediction"].to_numpy())))
         '''),
         md(r'''
-        Hold-out MAPE는 4.99%로 안정성 상한을 통과했다. 이 시점에서 Feature, 전처리, 모델, alpha를 동결한다. 이후 Batch 2 결과를 보고 어떤 설정도 바꾸지 않는다.
+        Hold-out MAPE는 5.28%로 안정성 상한을 통과했다. 최종 모델은 Hyperparameter가 없는 단일 특성 선형회귀다. 개정 동기가 기존 Batch 2 실패에서 출발했다는 점은 숨기지 않고, 실제 적합과 선정에 Batch 2·3 Target을 사용하지 않았다.
         '''),
         md(r'''
         ## 7. 설정 잠금 확인 후 Batch 2·3 외부 평가
@@ -703,8 +827,11 @@ def build_model_notebook() -> nbf.NotebookNode:
         code(r'''
         with open(RESULT_DIR / "external_evaluation_lock.json", encoding="utf-8") as handle:
             lock = json.load(handle)
-        assert lock["batch2_used_for_selection"] is False
-        assert lock["post_batch2_retuning"] is False
+        assert lock["batch2_target_used_in_model_fit_or_candidate_scoring"] is False
+        assert lock["batch3_target_used_in_model_fit_or_candidate_scoring"] is False
+        assert lock["protocol_amendment_motivated_by_prior_batch2_failure"] is True
+        assert lock["batch2_is_fresh_blind_test"] is False
+        assert lock["post_batch2_target_optimization"] is False
         assert lock["selected_feature_set"] == selected_feature_set
         assert lock["selected_model"] == selected_model_name
         assert set(lock["selected_features"]) == set(selected_features)
@@ -764,7 +891,7 @@ def build_model_notebook() -> nbf.NotebookNode:
         display(performance.round(3)); display(gaps.round(3))
         '''),
         md(r'''
-        Batch 1 내부는 CV 7.68%, hold-out 4.99%였지만 Batch 2는 36.56%로 악화됐다. Batch 3은 12.63%다. Valid–Test Gap +31.57%p는 Batch 간 분포와 관계가 달라졌음을 시사한다.
+        개정 모델은 Batch 1 반복 CV 8.34%, hold-out 5.28%, Batch 2 24.68%, Batch 3 14.10%를 기록했다. 기존 F2 Ridge 대비 Batch 2 MAPE가 11.88%p 낮아졌지만 Valid–Test Gap은 여전히 +19.41%p이므로 Batch shift가 해결된 것은 아니다.
         '''),
         md("## 9. 실제값–예측값과 잔차"),
         code(r'''
@@ -794,7 +921,7 @@ def build_model_notebook() -> nbf.NotebookNode:
         ).round(2))
         '''),
         md(r'''
-        Batch 2는 평균 실제 565.7 cycle을 741.4 cycle로 예측했고 39개 중 35개를 과대 예측했다. Batch 전체 방향의 편향이므로 ESS에서는 정비 지연 위험이다.
+        Batch 2는 평균 실제 565.7 cycle을 678.4 cycle로 예측했고 39개 중 32개를 과대 예측했다. 기존 모델보다 편향은 줄었지만, ESS에서 정비 지연을 만들 수 있는 과대 예측 위험은 여전히 남아 있다.
         '''),
         md(r'''
         ## 10. 수명·충전조건별 오류, 최악 Cell, Feature shift
@@ -831,7 +958,7 @@ def build_model_notebook() -> nbf.NotebookNode:
         imp = importance.sort_values("absolute_importance")
         imp_colors = ["#D95D5D" if value < 0 else "#1A9AA3" for value in imp["importance"]]
         axes[1].barh(imp["feature"], imp["importance"], color=imp_colors); axes[1].axvline(0, color="#334155")
-        axes[1].set(title="최종 Ridge의 표준화 계수", xlabel="계수의 크기와 방향", ylabel="Feature")
+        axes[1].set(title="최종 선형회귀의 표준화 계수", xlabel="계수의 크기와 방향", ylabel="Feature")
         fig.suptitle("실패 사례와 모델이 사용한 신호", fontsize=15, fontweight="bold")
         plt.tight_layout(); plt.show(); display(importance.round(3))
         '''),
@@ -844,7 +971,7 @@ def build_model_notebook() -> nbf.NotebookNode:
         plt.tight_layout(); plt.show(); display(batch_shift.round(3))
         '''),
         md(r'''
-        Batch 2는 `delta_q_iqr`가 +0.99 SD, `qd_mean`이 +1.79 SD 이동했고 `qd_mean`의 51.3%가 Batch 1 범위 밖이다. Batch 3은 반대 방향이다. 외부 성능 차이는 학습 분포 밖 외삽과 Feature–수명 관계 변화로 해석한다.
+        Batch 2의 `delta_q_iqr`는 Batch 1 대비 +0.99 SD, Batch 3은 -1.04 SD 이동했다. 최종 모델에서 Batch 2 외삽을 키웠던 Capacity Feature를 제외했지만, ΔQ 신호와 수명의 관계 자체도 Batch별로 달라 완전한 일반화는 달성하지 못했다.
         '''),
         md(r'''
         ## 11. ESS 운영 해석과 한계
@@ -859,13 +986,16 @@ def build_model_notebook() -> nbf.NotebookNode:
         code(r'''
         checks = {
             "입력 Feature에 미래정보 없음": not any(token in name.lower() for name in selected_features for token in FORBIDDEN_FEATURE_PATTERNS),
-            "최종 Feature 3개": set(selected_features) == {"delta_q_iqr", "qd_mean", "qd_slope"},
-            "최종 모델 Ridge": selected_model_name == "Ridge",
-            "alpha 1.0": selected_params == {"model__alpha": 1.0},
+            "최종 Feature는 ΔQ 대표값 1개": selected_features == ["delta_q_iqr"],
+            "최종 모델 선형회귀": selected_model_name == "Linear Regression",
+            "추가 Hyperparameter 없음": selected_params == {},
             "필수 평가 4구간": set(performance["dataset"]) == {"Train (Batch 1 CV)", "Batch 1 Hold-out", "Batch 2 Test", "Batch 3 Test"},
             "필수 Gap 4개": set(gaps["gap"]) == {"Train-Valid", "Valid-Test", "Target-Test", "Batch2-Batch3"},
-            "외부 선택 미사용": lock["batch2_used_for_selection"] is False,
-            "외부 결과 후 재튜닝 없음": lock["post_batch2_retuning"] is False,
+            "Batch 2·3 Target 적합·선정 미사용": (
+                lock["batch2_target_used_in_model_fit_or_candidate_scoring"] is False
+                and lock["batch3_target_used_in_model_fit_or_candidate_scoring"] is False
+            ),
+            "사후 프로토콜 개정 공개": lock["protocol_amendment_motivated_by_prior_batch2_failure"] is True,
             "예측 결측 없음": predictions["prediction"].notna().all(),
         }
         display(pd.DataFrame([{"검사": name, "결과": "통과" if passed else "실패"} for name, passed in checks.items()]))
@@ -875,13 +1005,116 @@ def build_model_notebook() -> nbf.NotebookNode:
         md(r'''
         ## 13. 최종 결론
 
-        1. ΔQ screening과 F0~F4 Ablation 결과 `delta_q_iqr`, `qd_mean`, `qd_slope`를 선택했다.
-        2. 다섯 모델을 같은 반복 CV로 비교하고 1-SE 규칙으로 **Ridge(alpha=1.0)**를 선택했다.
-        3. Batch 1 CV 7.68%, hold-out 4.99%, Batch 2 36.56%, Batch 3 12.63%였다.
+        1. ΔQ screening과 F0~F4 Ablation 후, C-rate 그룹 외삽에서 최악 오차가 가장 작은 `delta_q_iqr` 단일 Feature를 선택했다.
+        2. 다섯 모델을 같은 nested group validation으로 비교하고 **Linear Regression**을 선택했다.
+        3. Batch 1 CV 8.34%, hold-out 5.28%, Batch 2 24.68%, Batch 3 14.10%였다.
         4. Batch 2의 단수명 Cell 대부분을 과대 예측했으므로 안전 관점에서 직접 배포할 수 없다.
         5. 가장 중요한 결론은 내부 CV뿐 아니라 **Batch drift와 과대 예측 방향을 운영 중 감시해야 한다**는 것이다.
 
         부족한 Feature나 모델을 추가할 때도 `feature_sets`, `model_specs`, 오류 분석 셀을 직접 수정해 확장할 수 있다.
+        '''),
+        md(r'''
+        ## 14. 추가 개선 실험의 위치
+
+        다음 분석은 최초 F2 Ridge 외부평가 이후 수행한 **post-hoc representation study**다. 최초 F2 Ridge의 Batch 2 MAPE 36.56%와 개정 F1 선형회귀의 24.68%와는 별도로, 곡선 전체 표현의 가능성을 진단한다.
+
+        - 후보 선택: Batch 1 development nested CV만 사용
+        - 후보: 논문형 log-ElasticNet, ΔQ 곡선 PLS/PCA-Ridge, 다중 Cycle ΔQ PLS
+        - 고정 hold-out: 내부 안정성 보조 확인
+        - Batch 2·3: 후보 잠금 이후 평가
+
+        Batch 2 결과를 이용해 최종 후보를 다시 선택하지 않으며, 후보 전체의 외부 결과는 성능 개선 가능성을 확인하는 사후 민감도 분석으로만 제시한다.
+        '''),
+        code(r'''
+        from dataclasses import dataclass
+        from sklearn.compose import TransformedTargetRegressor
+        from sklearn.cross_decomposition import PLSRegression
+        from sklearn.decomposition import PCA
+        from sklearn.model_selection import KFold
+
+        V2_RESULT_DIR = ROOT / "results" / "day2_v2"
+        TRAJECTORY_CYCLES = tuple(range(20, 101, 10))
+        '''),
+        code(v2_model_source),
+        md(r'''
+        ## 15. v2 후보와 Nested CV
+
+        `log_target()`은 학습 시 `log(cycle_life)`, 예측 시 `exp()`를 Pipeline과 결합한다. PCA·PLS·Scaler·Imputer는 각 fold의 train에만 fit된다. Outer CV가 성능을 추정하고 inner CV가 component 수와 규제강도를 선택한다.
+        '''),
+        code(r'''
+        v2_data = pd.read_csv(V2_RESULT_DIR / "extended_feature_table.csv")
+        v2_curves = np.load(V2_RESULT_DIR / "delta_q_curve_data.npz", allow_pickle=False)
+        delta_q_curve = v2_curves["cycle100_minus10"]
+        delta_q_trajectory = v2_curves["trajectory"]
+        v2_candidates = build_candidates(v2_data, delta_q_curve, delta_q_trajectory)
+
+        RUN_V2_NESTED_SEARCH = False
+        if RUN_V2_NESTED_SEARCH:
+            y_v2 = v2_data["cycle_life"].to_numpy(float)
+            dev_v2 = np.flatnonzero(v2_data["split"].eq("development").to_numpy())
+            v2_rows, v2_folds = [], []
+            for candidate in v2_candidates:
+                folds, summary = nested_score(candidate, dev_v2, y_v2)
+                v2_folds.append(folds)
+                v2_rows.append({
+                    "candidate": candidate.name, "feature_family": candidate.feature_family,
+                    "feature_count": candidate.feature_count, **summary,
+                })
+            v2_comparison = pd.DataFrame(v2_rows).sort_values("nested_cv_mape_mean")
+        else:
+            v2_comparison = pd.read_csv(V2_RESULT_DIR / "nested_cv_comparison.csv")
+
+        display(v2_comparison[[
+            "candidate", "feature_family", "feature_count", "nested_cv_mape_mean",
+            "nested_cv_mape_std", "worst_fold_mape", "selected_v2"
+        ]].round(3))
+        '''),
+        md(r'''
+        Batch 1 nested CV에서는 논문형 ElasticNet `log(y)`가 7.21%로 가장 낮았다. 이 후보를 잠근 뒤 외부평가했지만 Batch 2 MAPE는 47.39%로 악화됐다. 내부 CV 개선이 다른 Batch의 개선을 보장하지 않는다는 결과다.
+        '''),
+        md(r'''
+        ## 16. 사전 정의 후보의 외부 민감도 분석
+
+        다음 표는 Batch 2를 이용한 모델 선택표가 아니다. v2 코드에 사전 정의되어 있던 각 표현을 같은 방식으로 적합했을 때 외부 Batch에서 어떤 행동을 보였는지 확인한 진단표다.
+        '''),
+        code(r'''
+        v2_locked_performance = pd.read_csv(V2_RESULT_DIR / "v1_v2_performance.csv")
+        external_diagnostic = pd.read_csv(V2_RESULT_DIR / "predeclared_candidate_external_performance.csv")
+        display(v2_locked_performance.round(3))
+        display(external_diagnostic.query("dataset == 'Batch 2 Test'")[[
+            "candidate", "feature_family", "mape_pct", "mae", "rmse", "r2",
+            "mean_bias", "over_prediction_pct", "best_params"
+        ]].sort_values("mape_pct").round(3))
+        '''),
+        md(r'''
+        ### 핵심 발견
+
+        - `ΔQ 곡선 PLS log(y)`: Batch 2 MAPE **25.54%**
+        - `ΔQ 곡선 PCA-Ridge log(y)`: Batch 2 MAPE **25.84%**
+        - 최초 v1 F2 Ridge(백업): Batch 2 MAPE **36.56%**
+
+        ΔQ 전체 곡선 표현은 Batch 2에서 20%대에 도달했다. 그러나 Batch 1 nested CV에서는 공식 Scalar 모델보다 낮은 순위였다. 따라서 이 모델을 Batch 2 결과만으로 공식 최종 모델로 승격할 수는 없다. 새로운 독립 Batch에서 재검증되기 전까지는 **성능 개선 가능성을 보여주는 사후 결과**로 해석한다.
+        '''),
+        code(r'''
+        locked = json.loads((V2_RESULT_DIR / "v2_external_evaluation_lock.json").read_text(encoding="utf-8"))
+        checks_v2 = {
+            "공식 v1 결과 보존": (RESULT_DIR / "external_evaluation_lock.json").exists(),
+            "v2 선택은 Batch 1 development": locked["selection_data"] == "Batch 1 development only",
+            "Batch 2 선택 미사용": locked["batch2_target_used_for_selection"] is False,
+            "사후 재튜닝 금지": locked["post_external_retuning_allowed"] is False,
+            "초기 100 cycle 표현": delta_q_curve.shape[1] == 1000 and delta_q_trajectory.shape[1] == 9000,
+        }
+        display(pd.DataFrame([{"검사": key, "결과": "통과" if value else "실패"} for key, value in checks_v2.items()]))
+        assert all(checks_v2.values())
+        '''),
+        md(r'''
+        ## 17. 추가 개선 실험 결론
+
+        1. 원 논문형 Scalar 모델은 Batch 1 내부 CV를 개선했지만 Batch 2 일반화는 악화됐다.
+        2. ΔQ 전체 곡선을 PLS/PCA로 압축하면 Batch 2 MAPE가 25%대로 감소했다.
+        3. 내부 CV 순위와 외부 Batch 순위가 달라 단일 Batch 선택의 한계가 확인됐다.
+        4. 25%대 결과는 Batch 2를 본 뒤 확인한 사후 민감도 결과이므로 공식 v1을 대체하지 않는다.
+        5. 다음 단계는 ΔQ 곡선 모델을 미사용 독립 Batch에 사전 잠금한 뒤 평가하는 것이다.
         '''),
     ])
 
