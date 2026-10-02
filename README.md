@@ -51,8 +51,8 @@ Batch 2 결과를 확인한 뒤 Feature나 Hyperparameter를 다시 조정하지
 │   ├── day1/                            # Day 1 통계표와 Feature 진단 결과
 │   └── day2/                            # Feature Table, CV, 예측, 성능·오류표
 ├── figures/
-│   ├── day1/                            # Day 1 한국어 그래프
-│   └── day2/                            # Day 2 한국어 그래프
+│   ├── day1/                            # Day 1 그래프
+│   └── day2/                            # Day 2 그래프
 ├── reports/
 │   ├── DAY1_분석_보고서.md
 │   ├── DAY2_분석_계획.md
