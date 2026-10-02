@@ -360,7 +360,7 @@ Batch 2에서는 과대 예측이 지배적이므로 단순 평균오차 문제�
 | [`results/day2_v2/predeclared_candidate_external_performance.csv`](results/day2_v2/predeclared_candidate_external_performance.csv) | 사전 정의 후보 전체의 사후 외부 민감도 분석 |
 | [`reports/DAY1_분석_보고서.md`](reports/DAY1_분석_보고서.md) | Day 1 상세 EDA 보고서 |
 | [`reports/DAY2_분석_보고서.md`](reports/DAY2_분석_보고서.md) | Day 2 모델링·오류 분석 보고서 |
-| [`reports/DAY2_추가_성능개선_보고서.md`](reports/DAY2_추가_성능개선_보고서.md) | Batch 2 20%대 가능성을 검토한 추가 연구와 한계 |
+| [`reports/DAY2_추가_성능개선_보고서.md`](reports/DAY2_추가_성능개선_보고서.md) | Batch 2 추가 연구와 한계 |
 
 ## 참고문헌
 
