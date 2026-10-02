@@ -61,8 +61,7 @@ Batch 2 결과를 확인한 뒤 Feature나 Hyperparameter를 다시 조정하지
 │   ├── DAY1_분석_보고서.md
 │   ├── DAY2_분석_보고서.md
 │   └── DAY2_추가_성능개선_보고서.md
-├── requirements-day1.txt
-├── requirements-day2.txt
+├── requirements.txt                      # Day 1·2 공통 실행환경
 └── README.md
 ```
 
@@ -79,7 +78,7 @@ cd ess-battery-health
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements-day2.txt
+pip install -r requirements.txt
 ```
 
 Windows에서는 가상환경을 다음과 같이 활성화한다.
