@@ -1,0 +1,10 @@
+﻿group_id,n_features,representative,members,min_abs_pairwise_rho,max_abs_pairwise_rho,representative_target_spearman_batch1,selection_basis
+R01,12,delta_q_log10_var,delta_q_abs_area | delta_q_area | delta_q_iqr | delta_q_l1 | delta_q_l2 | delta_q_log10_var | delta_q_mean | delta_q_min | delta_q_q05 | delta_q_q25 | delta_q_std | delta_q_var,0.9475794017884674,1.0,-0.8711607269559923,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R02,8,tavg_mean,tavg_max | tavg_mean | tavg_median | tavg_min | tmax_max | tmax_mean | tmax_median | tmax_min,0.8447116867098365,0.9981498612395929,-0.37146910148360657,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R03,6,qd_mean,qc_median | qc_min | qd_max | qd_mean | qd_median | qd_min,0.8218933086648166,0.9951896392229417,0.24188972538912581,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R04,4,chargetime_mean,chargetime_max | chargetime_mean | chargetime_median | chargetime_min,0.9944495837187789,0.9969164353993216,0.6192796360612475,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R05,4,qd_slope,qc_delta | qc_slope | qd_delta | qd_slope,0.8720937403638607,0.9970397779833488,0.47878376802544204,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R06,3,ir_mean,ir_max | ir_mean | ir_median,0.9131668208448968,0.9970397779833488,0.18903416836248613,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R07,2,ir_delta,ir_delta | ir_slope,0.9378353376503238,0.9378353376503238,-0.225484149929282,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R08,2,qc_std,qc_std | qd_std,0.9655874190564292,0.9655874190564292,0.03947206125676709,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
+R09,2,tmax_slope,tmax_delta | tmax_slope,0.9669441874807277,0.9669441874807277,-0.49784137260097494,Batch 1 내부 | |Spearman|≥0.90 연결군 | 해석성과 안정성 우선
