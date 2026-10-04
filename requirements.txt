@@ -1,12 +1,21 @@
+# Core data processing
 numpy==2.1.1
 pandas==2.2.3
 h5py==3.16.0
 scipy==1.14.1
+
+# Visualization
 matplotlib==3.9.2
 seaborn==0.13.2
+
+# Machine learning
 scikit-learn==1.5.2
+
+# Notebook environment
 jupyterlab==4.2.5
 ipykernel==6.29.5
 nbformat==5.10.4
+
+# Report generation
 Pillow==12.3.0
 reportlab==4.4.9

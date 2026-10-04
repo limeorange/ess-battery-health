@@ -78,7 +78,7 @@ cd ess-battery-health
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 Windows에서는 가상환경을 다음과 같이 활성화한다.
